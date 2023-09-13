@@ -1,0 +1,10 @@
+sympy
+numpy
+scipy
+matplotlib
+notebook
+ipykernel
+pyserial
+pika
+pyhocon
+influxdb-client
