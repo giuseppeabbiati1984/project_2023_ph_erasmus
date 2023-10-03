@@ -41,7 +41,7 @@ class beam2D_v2:
         self.compute_K()
 
     def compute_K(self):
-        # Element stiffness matrix
+        # Local element stiffness matrix
         self.Kl = self.E*self.I/self.L**3 * np.array([[self.E*self.A/self.L, 0,0,-self.E*self.A/self.L,0,0],
                                                     [0, self.E*self.I/self.L**2*12, self.E*self.I/self.L**2*6, 0, -self.E*self.I/self.L**3*12, self.E*self.I/self.L**2*6],
                                                     [0, self.E*self.I/self.L**2*6,  self.E*self.I/self.L*4,    0, -self.E*self.I/self.L**2*6,  self.E*self.I/self.L*2   ],
@@ -49,7 +49,7 @@ class beam2D_v2:
                                                     [0, -self.E*self.I/self.L**3*12, -self.E*self.I/self.L**2*6, 0, self.E*self.I/self.L**3*12, -self.E*self.I/self.L**2*6],
                                                     [0, self.E*self.I/self.L**2*6,   self.E*self.I/self.L*2,     0, -self.E*self.I/self.L**3*6, self.E*self.I/self.L*4    ]],dtype="float")
 
-        # Global stiffness matrix per element
+        # Global element stiffness matrix
         self.Ke = dense2sparse(np.linalg.multi_dot([np.transpose(self.R),self.Kl,self.R]))
 
 
@@ -87,7 +87,7 @@ params = {
   'area' : A}
 
 # Node geometry
-coord = np.zeros((11,3))
+coord = np.zeros((12,3))
 coord[0,:] = [0, 0.0, 0.0]
 coord[1,:] = [1, 917.0, 0.0]
 coord[2,:] = [2, Lv, 0.0]
@@ -99,19 +99,27 @@ coord[7,:] = [7, 660.0, 996.0]
 coord[8,:] = [8, 917.0, 996.0]
 coord[9,:] = [9, 917, 996.0-21.0]
 coord[10,:] = [10, 917.0, 675.0]
+coord[11,:] = [11, Lv-500, Lh-330]
 
 # Elements
-eTop = np.zeros((12,2),dtype=int)
-for i in range(len(coord)-1):
+eTop = np.zeros((13,2),dtype=int)
+for i in range(len(coord)-2):
     eTop[i,0] = coord[i,0]
     eTop[i,1] = coord[i+1,0]
 eTop[10,0] = coord[10,0]
 eTop[10,1] = coord[1,0]
 eTop[11,0] = coord[0,0]
 eTop[11,1] = coord[6,0]
+eTop[12,0] = coord[3,0]
+eTop[12,1] = coord[11,0]
 
 # Plot the initial geometry
 plt.plot([coord[eTop[:,0],1],coord[eTop[:,1],1]],[coord[eTop[:,0],2],coord[eTop[:,1],2]])
+
+# Boundary conditions
+BCd = np.array([[0,1],[0,2],[2,1],[2,2]])           #Node, dof with blocked displacements
+force = 100
+BCf = np.array([[11,1,force],[11,2,force]])         #Node, dof, value of acting force
 
 # Arrays
 myElements = []
@@ -128,6 +136,10 @@ for i in range(0,eTop.shape[0]):
 
 model_dofs = np.unique(model_dofs,axis=0)                                   #Remove double dofs
 
+for row in BCd:
+    if row in model_dofs:
+        np.delete(model_dofs, row)                                          #Remove BC dofs
+
 # Compute stiffness matrix
 for i in range(0,eTop.shape[0]):
 
@@ -138,33 +150,7 @@ for i in range(0,eTop.shape[0]):
 
     K += Ze_sp.transpose() @ Ke_sp @ Ze_sp                  #Global stiffness matrix
 
-
 #%%
-
-# Loads
-actuator = 100                       #force on frame due to the actuators
-cantilever = 100                     #force on frame due to the cantilever beam
-load = np.zeros(((len(coord)+1)*Ndof,1)).astype(object)
-load[4*Ndof+1] = cantilever       #cantilever beam attached to node 4
-load[7*Ndof+1] = actuator/2       #first actuator attached to node 7 and 8
-load[8*Ndof+1] = actuator/2
-load[9*Ndof+1] = actuator/2       #second actuator attahed to node 9 and 10
-load[10*Ndof+1] = actuator/2
-
-# Boundary conditions
-BC = np.ones(((len(coord)+1)*Ndof,1)).astype(object)
-BC[0,0] = 0     #x-translation node 0
-BC[1,0] = 0     #y-translation node 0
-BC[2*Ndof+1,0] = 0  #y-translation node 2
-
-#        # Boundary conditions       #column 1: node_ID, column 2: dof, column 3: type (0=displacement, 1=force), column 4: value
-#        BC = np.array([[self.dof[0,0],self.dof[0,1],0,0],
-#                       [self.dof[1,0],self.dof[1,1],0,0],
-#                       [self.dof[2,0],self.dof[2,1],0,0],
-#                       [self.dof[3,0],self.dof[3,1],0,0],
-#                       [self.dof[4,0],self.dof[4,1],0,0],
-#                       [self.dof[5,0],self.dof[5,1],0,0]])
-
 
 
 
