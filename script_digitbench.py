@@ -53,21 +53,87 @@ class beam2D_v2:
         self.Ke = dense2sparse(np.linalg.multi_dot([np.transpose(self.R),self.Kl,self.R]))
 
 
-    def compute_Z(self,model_dofs):
-
+    def compute_Z(self,modeldofs):
         self.row_index = []
         self.col_index = []
 
         for i,edof in enumerate(self.dof):
-            for j,mdof in enumerate(model_dofs):
+            for j,mdof in enumerate(modeldofs):
                 if np.array_equal(edof,mdof):
                     self.row_index.append(i)
                     self.col_index.append(j)
 
         # compact row, compat col or compact diag
-        self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],model_dofs.shape[0]))
+        self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
-#%%
+
+class model:
+
+    def __init__(self,eTop,BCd,params,coord,BCm,BCs,force_dof):
+        self.BCd = BCd
+        self.BCm = BCm
+        self.BCs = BCs
+        self.BCf = force_dof[:,0:2]
+        self.f = force_dof[:,2]
+        self.model_dofs = np.zeros((0,2),dtype=int)
+        self.get_unique_dof(eTop,params,coord)
+        self.stiffness_matrix(eTop)
+        self.compute_force()
+
+    # Get unique DOF list
+    def get_unique_dof(self,eTop,params,coord):
+        self.myElements = []
+
+        for i in range(0,eTop.shape[0]):
+
+            self.myElements.append(beam2D_v2(params,coord[eTop[i,:],:])) 
+            np.append(self.model_dofs, self.myElements[i].dof, axis=0)
+
+            for idr, element_row in enumerate(self.myElements[i].dof):
+                for j, row in enumerate(self.BCs):
+                    if np.array_equal(element_row,row):
+                        self.myElements[i].dof[idr] = self.BCm[j]                                #Replace BCs with BCm
+
+            self.model_dofs = np.concatenate((self.model_dofs,self.myElements[i].dof),axis=0)      #List of all dofs
+
+        self.model_dofs = np.unique(self.model_dofs,axis=0)                                        #Remove double dofs
+
+        for i, row in enumerate(self.BCd):
+            for j, model_row in enumerate(self.model_dofs):
+                if np.array_equal(row,model_row):
+                    self.model_dofs = np.delete(self.model_dofs, j, axis=0)                   #Remove BC dofs
+
+    # Compute stiffness matrix
+    def stiffness_matrix(self,eTop):
+        self.K = []
+
+        for i in range(0,eTop.shape[0]):
+            self.myElements[i].compute_Z(self.model_dofs)
+            Ze_sp = self.myElements[i].Ze
+            Ke_sp = self.myElements[i].Ke
+
+        self.K += Ze_sp.transpose() @ Ke_sp @ Ze_sp                  #Global stiffness matrix
+
+    def compute_force(self):
+        self.row_index = []
+        self.col_index = []
+
+        for i,fdof in enumerate(self.BCf):
+            for j,mdof in enumerate(self.model_dofs):
+                if np.array_equal(fdof,mdof):
+                    self.row_index.append(i)
+                    self.col_index.append(j)
+
+        self.Zf = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.BCf.shape[0],self.model_dofs.shape[0]))
+        
+        self.Kd = self.Zf.transpose() @ self.f
+
+        #self.d = sp.sparse.linalg.spsolve(self.K, self.Kd)
+        self.d = np.linalg.lstsq(self.K, self.Kd)
+
+
+
+#%% Cantilever beam
 
 ## Initialization
 # Parameters
@@ -114,44 +180,68 @@ eTop[12,0] = coord[3,0]
 eTop[12,1] = coord[11,0]
 
 # Plot the initial geometry
-plt.plot([coord[eTop[:,0],1],coord[eTop[:,1],1]],[coord[eTop[:,0],2],coord[eTop[:,1],2]])
+#plt.plot([coord[eTop[:,0],1],coord[eTop[:,1],1]],[coord[eTop[:,0],2],coord[eTop[:,1],2]])
 
 # Boundary conditions
 BCd = np.array([[0,1],[0,2],[2,1],[2,2]])           #Node, dof with blocked displacements
 force = 100
-BCf = np.array([[11,1,force],[11,2,force]])         #Node, dof, value of acting force
+force_dof = np.array([[11,1,force],[11,2,force]])         #Node, dof, value of acting force
+BCm = []                                            #Leading nodes
+BCs = []                                            #Following nodes
 
-# Arrays
-myElements = []
-K = []
-model_dofs = np.zeros((0,2),dtype=int)
 
-#%% Prototype of the model class
+## Main code
 
-# Get unique dof list
-for i in range(0,eTop.shape[0]):
+myModel = model(eTop,BCd,params,coord,BCm,BCs,force_dof)
 
-    myElements.append(beam2D_v2(params,coord[eTop[i,:],:])) 
-    model_dofs = np.concatenate((model_dofs,myElements[i].dof),axis=0)      #List of all dofs
+#%% Simple frame
 
-model_dofs = np.unique(model_dofs,axis=0)                                   #Remove double dofs
+## Initialization
+# Parameters
+E = 200e9   #Young's modulus [Pa]
+h = 0.1     #Height of beam [m]
+b = 0.1     #Width of beam [m]
+t = 0.004   #Thickness of beam [m]
+I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [m4]
+A = b*h     #Area [m2]
+Ndof = 3    #Number of degrees of freedom
 
-for row in BCd:
-    if row in model_dofs:
-        np.delete(model_dofs, row)                                          #Remove BC dofs
+params = {
+  'youngs_modulus': E,
+  'inertia': I,
+  'area' : A}
 
-# Compute stiffness matrix
-for i in range(0,eTop.shape[0]):
+# Node geometry
+nodes = np.zeros((6,3))
+nodes[0,:] = [0, 0.0, 0.0]
+nodes[1,:] = [1, 0.0, 10.0]
+nodes[2,:] = [2, 10.0, 0.0]
+nodes[3,:] = [3, 10.0, 10.0]
+nodes[4,:] = [4, 0.0, 10.0]
+nodes[5,:] = [5, 10.0, 10.0]
 
-    myElements[i].compute_Z(model_dofs)
+# Elements
+elements = np.zeros((3,2),dtype=int)
+elements[0,0] = nodes[0,0]
+elements[0,1] = nodes[1,0]
+elements[1,0] = nodes[2,0]
+elements[1,1] = nodes[3,0]
+elements[2,0] = nodes[4,0]
+elements[2,1] = nodes[5,0]
 
-    Ze_sp = myElements[i].Ze
-    Ke_sp = myElements[i].Ke
+# Plot the initial geometry
+#plt.plot([nodes[elements[:,0],1],nodes[elements[:,1],1]],[nodes[elements[:,0],2],nodes[elements[:,1],2]])
 
-    K += Ze_sp.transpose() @ Ke_sp @ Ze_sp                  #Global stiffness matrix
+# Boundary conditions
+BCd = np.array([[0,1],[0,2],[2,1],[2,2]])           #Node, dof with blocked displacements
+force = 100
+force_dof = np.array([[4,1,force],[4,2,force]])         #Node, dof, value of acting force
+BCm = np.array([[1,1],[1,2],[1,3],[3,1],[3,2],[3,3]])   #Leading nodes
+BCs = np.array([[4,1],[4,2],[4,3],[5,1],[5,2],[5,3]])   #Following nodes
 
-#%%
+## Main code
 
+myModel = model(elements,BCd,params,nodes,BCm,BCs,force_dof)
 
 
 
