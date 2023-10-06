@@ -127,9 +127,15 @@ class model:
         self.Zf = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.BCf.shape[0],self.model_dofs.shape[0]))
         
         self.Kd = self.Zf.transpose() @ self.f
+        print(self.Zf)
+        print('------------------------')
+        print(self.K)
+        print('------------------------')
+        print(self.Kd)
 
         #self.d = sp.sparse.linalg.spsolve(self.K, self.Kd)
         self.d = np.linalg.lstsq(self.K, self.Kd)
+
 
 
 
