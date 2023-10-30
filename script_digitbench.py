@@ -233,13 +233,13 @@ class membrane2D:
         for ri,wi in zip(r,w):
             for rj,wj in zip(r,w):
 
+                #grad = np.linalg.inv(self.J).transpose() @ self.N
                 J = N(ri,rj) @ self.node_coord([:,0:2])
 
-                grad = np.linalg.inv(self.J).transpose() @ self.N
+                B_ext =
 
 
-
-                self.ke += Bb @ D @ B * wi * wj
+                self.ke += B_ext @ D @ B_ext * wi * wj
 
 
 
@@ -248,8 +248,8 @@ class membrane2D:
                     grad = np.zeros([self.PD,self.NPE])
 
                     self.GaussPoint(gp)
-                    self.N = np.array([[-1/4*(1-self.eta),    1/4*(1-self.eta), -1/4*(1+self.eta),   1/4*(1+self.eta)],
-                                       [-1/4*(1-self.xi),     -1/4*(1+self.xi),  1/4*(1-self.xi),    1/4*(1+self.xi) ]])
+                    self.N = np.array([[-1/4*(1-self.eta),    1/4*(1-self.eta),   1/4*(1+self.eta), -1/4*(1+self.eta)],
+                                       [-1/4*(1-self.xi),     -1/4*(1+self.xi),    1/4*(1+self.xi),  1/4*(1-self.xi) ]])
                                 #3 en 4 omgedraaid
 
                     #self.J = self.coor @ self.N.transpose()
@@ -408,7 +408,8 @@ params = {
   'area' : A,
   'p' : p,
   'm' : m,
-  'poisson' : nu}
+  'poisson' : nu,
+  'thickness' : t}
 
 # Node geometry
 coord = np.zeros((12,3))
@@ -591,6 +592,37 @@ print(total_sp)
 
 #%% Membrane based model
 
+import numpy as np
+import scipy as sp
+import math
+import matplotlib.pyplot as plt
+from sympy.physics.vector import ReferenceFrame, CoordinateSym
+
+## Initialization
+# Parameters
+E = 200e9   #Young's modulus [Pa]
+nu = 0.3    #Poisson's ratio 
+h = 10 #0.1     #Height of beam [m]
+b = 10 #0.1     #Width of beam [m]
+Lh = 1642   #Length of horizontal beams [m]
+Lv = 1786   #Length of vertical beams [m]
+t = 0.004   #Thickness of beam [m]
+I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [m4]
+A = b*h     #Area [m2]
+Ndof = 3    #Number of degrees of freedom
+p = 10       #number of elements in which the horizontal line will be divided
+m = 10       #number of elements in which the vertical line will be divided
+type = 'shell'   #beam or shell
+
+params = {
+  'youngs_modulus': E,
+  'inertia': I,
+  'area' : A,
+  'p' : p,
+  'm' : m,
+  'poisson' : nu,
+  'thickness' : t}
+
 # Node geometry
 coord = np.zeros((12,3))
 coord[0,:] = [0, 0.0, 0.0]
@@ -618,42 +650,129 @@ eTop[11,1] = coord[6,0]
 eTop[12,0] = coord[3,0]
 eTop[12,1] = coord[11,0]
 
-n = 0       #this will allow us to go through rows in node list
-
-## Nodes
-NL = np.zeros([self.NoN, self.PD],dtype="int")    #node list
-        for i in range(0,self.m+1):
-            for j in range(0,self.p+1):
-                self.NL[n,0] = self.q[0,0] + j*self.a
-                self.NL[n,1] = self.q[0,1] + i*self.b
-                n += 1
-
-        ## Elements
-        self.EL = np.zeros([self.NoE, self.NPE],dtype="int")   #element list  
-        for i in range(0,self.m):
-            for j in range(0,self.p):
-                if j == 0:      #most left elements
-                    self.EL[i*self.p+j, 0] = i*(self.p+1) + (j+1)
-                    self.EL[i*self.p+j, 1] = self.EL[i*self.p+j, 0] + 1
-                    self.EL[i*self.p+j, 3] = self.EL[i*self.p+j, 0] + (self.p+1)
-                    self.EL[i*self.p+j, 2] = self.EL[i*self.p+j, 3] + 1
-                else:
-                    self.EL[i*self.p+j, 0] = self.EL[i*self.p+j-1, 1]
-                    self.EL[i*self.p+j, 3] = self.EL[i*self.p+j-1, 2]
-                    self.EL[i*self.p+j, 1] = self.EL[i*self.p+j, 0] + 1
-
-                    self.EL[i*self.p+j, 2] = self.EL[i*self.p+j, 3] + 1
+p = 10       #number of elements in which the horizontal line will be divided
+m = 10       #number of elements in which the vertical line will be divided
+NoN = (p+1)*(m+1)                #number of nodes
+NoE = p*m                        #number of elements
+NL = np.zeros((13*NoN, 3),dtype="int")    #extended node list
+EL = np.zeros((13*NoE, 4),dtype="int")                  #extended element list 
 
 
- self.L = np.linalg.norm(self.node_coord[1,:] - self.node_coord[0,:])
-        d1 = self.node_coord[1,0] - self.node_coord[0,0]
-        d2 = self.node_coord[1,1] - self.node_coord[0,1]
-        if d1 == 0:
-            d1 = 10.0
-        if d2 == 0:
-            d2 = 10.0
-        self.q = np.array([[0,0],[d1,0],[0,d2],[d1,d2]])  #four corners
-        self.NoN = (self.p+1)*(self.m+1)                #number of nodes
-        self.NoE = self.p*self.m                        #number of elements
-        self.a = (self.q[1,0]-self.q[0,0])/self.p   #increment in horizontal direction (length of element)
-        self.b = (self.q[2,1]-self.q[0,1])/self.m   #icrement in vertical direction (length of element)
+for row in range(0,eTop.shape[0]):
+    ## Nodes
+    n = 0       #this will allow us to go through rows in node list
+
+    lh = coord[eTop[row,1],1]-coord[eTop[row,0],1]
+    lv = coord[eTop[row,1],2]-coord[eTop[row,0],2]
+    if lh == 0:
+        lh = h
+    if lv == 0:
+        lv = b
+
+    for i in range(0,m+1):
+        for j in range(0,p+1):
+            NL[row*NoN+n,0] = row*NoN + n
+            NL[row*NoN+n,1] = coord[eTop[row,0],1] + j*lh/p 
+            NL[row*NoN+n,2] = coord[eTop[row,0],2] + i*lv/m
+            n += 1 
+
+    ## Elements
+    for i in range(0,m):
+        for j in range(0,p):
+            if j == 0:      #most left elements
+                EL[row*NoE+(i*p), 0] = row*NoN + i*p
+                EL[row*NoE+(i*p), 1] = EL[row*NoE, 0] + 1
+                EL[row*NoE+(i*p), 3] = row*NoN + (i+1)*p
+                EL[row*NoE+(i*p), 2] = EL[row*NoE, 3] + 1
+            else:
+                EL[row*NoE+(i*p)+j, 0] = EL[row*NoE+(i*p)+(j-1), 1]
+                EL[row*NoE+(i*p)+j, 1] = EL[row*NoE+(i*p)+j, 0] + 1
+                EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
+                EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
+
+
+
+
+
+class membrane2D:
+
+    def __init__(self, params, node):
+        self.E = params['youngs_modulus']
+        self.nu = params['poisson']        
+        self.t = params['thickness']
+        self.NPE = 4                        #nodes per element
+        self.PD = 2                         #problem dimension
+        self.node_ID = node[:,0].astype(int)
+        self.node_coord = node[:,1:3]
+        self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
+                             [self.node_ID[0],2],   #dof 2 = bending 
+                             [self.node_ID[1],1],
+                             [self.node_ID[1],2],
+                             [self.node_ID[2],1],   
+                             [self.node_ID[2],2],   
+                             [self.node_ID[3],1],
+                             [self.node_ID[3],2]],dtype="int")
+        self.a = (self.node_coord[0,0]-self.node_coord[1,0])   #increment in horizontal direction (length of element)
+        self.b = (self.node_coord[3,1]-self.node_coord[0,1])   #increment in vertical direction (length of element)
+
+        self.D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
+                           [self.nu*self.E/(1-self.nu**2),  self.E/(1-self.nu**2),          0],
+                           [0,                              0,                              self.E/(2*(1+self.nu))]])
+        self.compute_K() 
+
+
+    def compute_K(self):
+        self.Ke = np.zeros((8,8))                     #element stiffness
+
+        A = ReferenceFrame('A')
+        x = CoordinateSym('x',A,0)
+        y = CoordinateSym('y',A,1)
+
+        phi = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta)],[(1-xi)*(1+eta)],[(1+xi)*(1+eta)],[(1+xi)*(1-eta)]])
+       
+        #N = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta), 0,              (1-xi)*(1+eta), 0,              (1+xi)*(1+eta), 0,              (1+xi)*(1-eta), 0             ],
+        #                                   [0,              (1-xi)*(1-eta), 0,              (1-xi)*(1+eta), 0,              (1+xi)*(1+eta), 0,              (1+xi)*(1-eta)]]) 
+        
+        Nd = lambda xi, eta : np.array([[-1/4*(1-eta),    1/4*(1-eta),   1/4*(1+eta), -1/4*(1+eta)],
+                                        [-1/4*(1-xi),     -1/4*(1+xi),    1/4*(1+xi),  1/4*(1-xi) ]])
+        
+        B = lambda xi, eta : np.array([[np.gradient((1-xi)*(1-eta),x), 0, np.gradient((1-xi)*(1+eta),x), 0, np.gradient((1+xi)*(1+eta),x), 0, np.gradient((1+xi)*(1-eta),x),0],
+                                       [0, np.gradient((1-xi)*(1-eta),y), 0, np.gradient((1-xi)*(1+eta),y), 0, np.gradient((1+xi)*(1+eta),y), 0, np.gradient((1+xi)*(1-eta),y)],
+                                       [np.gradient((1-xi)*(1-eta),y), np.gradient((1-xi)*(1-eta),x), np.gradient((1-xi)*(1+eta),y), np.gradient((1-xi)*(1+eta),x), np.gradient((1+xi)*(1+eta),y), np.gradient((1+xi)*(1+eta),x), np.gradient((1+xi)*(1-eta),y), np.gradient((1+xi)*(1-eta),x)]])
+        # quadrature rule
+        xi,eta = self.GaussPoints(2)
+
+        # numerical ingration
+        for ri,wi in zip(xi,eta):
+            for rj,wj in zip(xi,eta):
+
+                #x = phi(ri,rj)[0,:]*self.node_coord[0,0] + phi(ri,rj)[1,:]*self.node_coord[1,0] + phi(ri,rj)[2,:]*self.node_coord[2,0] + phi(ri,rj)[3,:]*self.node_coord[3,0]
+                #y = phi(ri,rj)[0,:]*self.node_coord[0,1] + phi(ri,rj)[1,:]*self.node_coord[1,1] + phi(ri,rj)[2,:]*self.node_coord[2,1] + phi(ri,rj)[3,:]*self.node_coord[3,1]
+                
+
+                J = Nd(ri,rj) @ self.node_coord
+
+                wi = wi.reshape(-1,1)
+                wj = wj.reshape(-1,1)
+                detJ = np.linalg.det(J).reshape(-1,1)
+
+                print(B(ri,rj))            
+
+                self.Ke += B(ri,rj).transpose() @ self.D @ B(ri,rj) * detJ * wi * wj
+
+    def GaussPoints(self,order):
+        # quadrature rules in 1D (2D rules are obtained by combining 1Ds as in a grid)
+        if order == 1:
+            r = np.array([0.0])
+            w = np.array([2.0])
+        elif order == 2:
+            r = np.array([-1/math.sqrt(3),+1/math.sqrt(3)])
+            w = np.array([1.0,1.0])
+
+        return r,w
+
+
+
+## Main code
+for i in range(0,EL.shape[0]):
+    myModel = membrane2D(params,NL[EL[i,:],:])
