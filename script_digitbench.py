@@ -724,41 +724,50 @@ class membrane2D:
     def compute_K(self):
         self.Ke = np.zeros((8,8))                     #element stiffness
 
-        A = ReferenceFrame('A')
-        x = CoordinateSym('x',A,0)
-        y = CoordinateSym('y',A,1)
+        #A = ReferenceFrame('A')
+        #x = CoordinateSym('x',A,0)
+        #y = CoordinateSym('y',A,1)
 
-        phi = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta)],[(1-xi)*(1+eta)],[(1+xi)*(1+eta)],[(1+xi)*(1-eta)]])
-       
-        #N = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta), 0,              (1-xi)*(1+eta), 0,              (1+xi)*(1+eta), 0,              (1+xi)*(1-eta), 0             ],
-        #                                   [0,              (1-xi)*(1-eta), 0,              (1-xi)*(1+eta), 0,              (1+xi)*(1+eta), 0,              (1+xi)*(1-eta)]]) 
-        
-        Nd = lambda xi, eta : np.array([[-1/4*(1-eta),    1/4*(1-eta),   1/4*(1+eta), -1/4*(1+eta)],
+        phi = lambda s, t : 1/4*np.array([[(1-s)*(1-t)],[(1-s)*(1+t)],[(1+s)*(1+t)],[(1+s)*(1-t)]])
+        # to be fixed
+        dphi_ds = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta)],[(1-xi)*(1+eta)],[(1+xi)*(1+eta)],[(1+xi)*(1-eta)]])
+        dphi_dt = lambda xi, eta : 1/4*np.array([[(1-xi)*(1-eta)],[(1-xi)*(1+eta)],[(1+xi)*(1+eta)],[(1+xi)*(1-eta)]])
+
+        '''       
+        #Nd = lambda xi, eta : np.array([[-1/4*(1-eta),    1/4*(1-eta),   1/4*(1+eta), -1/4*(1+eta)],
                                         [-1/4*(1-xi),     -1/4*(1+xi),    1/4*(1+xi),  1/4*(1-xi) ]])
         
-        B = lambda xi, eta : np.array([[np.gradient((1-xi)*(1-eta),x), 0, np.gradient((1-xi)*(1+eta),x), 0, np.gradient((1+xi)*(1+eta),x), 0, np.gradient((1+xi)*(1-eta),x),0],
+        #B = lambda xi, eta : np.array([[np.gradient((1-xi)*(1-eta),x), 0, np.gradient((1-xi)*(1+eta),x), 0, np.gradient((1+xi)*(1+eta),x), 0, np.gradient((1+xi)*(1-eta),x),0],
                                        [0, np.gradient((1-xi)*(1-eta),y), 0, np.gradient((1-xi)*(1+eta),y), 0, np.gradient((1+xi)*(1+eta),y), 0, np.gradient((1+xi)*(1-eta),y)],
                                        [np.gradient((1-xi)*(1-eta),y), np.gradient((1-xi)*(1-eta),x), np.gradient((1-xi)*(1+eta),y), np.gradient((1-xi)*(1+eta),x), np.gradient((1+xi)*(1+eta),y), np.gradient((1+xi)*(1+eta),x), np.gradient((1+xi)*(1-eta),y), np.gradient((1+xi)*(1-eta),x)]])
+        '''
+        
         # quadrature rule
-        xi,eta = self.GaussPoints(2)
+        r,w = self.GaussPoints(2)
 
         # numerical ingration
-        for ri,wi in zip(xi,eta):
-            for rj,wj in zip(xi,eta):
+        for si,wi in zip(r,w):
+            for tj,wj in zip(r,w):
+
+                # numerical values
+                phi_val = phi(si,tj)
+                dphi_ds_val = dphi_ds(si,tj)
+                dphi_dt_val = dphi_dt(si,tj)
 
                 #x = phi(ri,rj)[0,:]*self.node_coord[0,0] + phi(ri,rj)[1,:]*self.node_coord[1,0] + phi(ri,rj)[2,:]*self.node_coord[2,0] + phi(ri,rj)[3,:]*self.node_coord[3,0]
                 #y = phi(ri,rj)[0,:]*self.node_coord[0,1] + phi(ri,rj)[1,:]*self.node_coord[1,1] + phi(ri,rj)[2,:]*self.node_coord[2,1] + phi(ri,rj)[3,:]*self.node_coord[3,1]
                 
+                # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
+                J = np.array([[(dphi_ds_val @ self.node_coord[:,0]).squeeze(),(dphi_dt_val @ self.node_coord[:,0]).squeeze()],\
+                              [(dphi_ds_val @ self.node_coord[:,1]).squeeze(),(dphi_dt_val @ self.node_coord[:,1]).squeeze()]])
+                
+                Bs = np.array((4,8))
+                Bs[[0],0:2:] = dphi_ds_val
+                Bs[[1],0:2:] = dphi_dt_val
 
-                J = Nd(ri,rj) @ self.node_coord
+                B = np.array([[1,0,0,0],[0,0,0,1],[0,1,1,0]]) @ @ Bs
 
-                wi = wi.reshape(-1,1)
-                wj = wj.reshape(-1,1)
-                detJ = np.linalg.det(J).reshape(-1,1)
-
-                print(B(ri,rj))            
-
-                self.Ke += B(ri,rj).transpose() @ self.D @ B(ri,rj) * detJ * wi * wj
+                self.Ke += self.h * B.transpose() @ self.D @ B * detJ * wi * wj
 
     def GaussPoints(self,order):
         # quadrature rules in 1D (2D rules are obtained by combining 1Ds as in a grid)
