@@ -216,6 +216,8 @@ class membrane2D:
                 # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
                 J = N(si,tj) @ self.node_coord
 
+                print(np.linalg.det(J))
+
                 Bs = np.zeros((4,8))
                 Bs[0,[0,2,4,6]] = N(si,tj)[0,:] #dphi_ds_val
                 Bs[1,[0,2,4,6]] = N(si,tj)[1,:] #dphi_dt_val
@@ -232,6 +234,8 @@ class membrane2D:
         # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
         Jsh = N(r,r) @ self.node_coord
 
+        print(np.linalg.det(Jsh))
+
         Bssh = np.zeros((4,8))
         Bssh[0,[0,2,4,6]] = N(r,r)[0,:] #dphi_ds_val
         Bssh[1,[0,2,4,6]] = N(r,r)[1,:] #dphi_dt_val
@@ -243,7 +247,6 @@ class membrane2D:
         Ke_sh = self.t * Bsh.transpose() * D[2,2]  * Bsh * np.linalg.det(Jsh) * w * w
 
         self.Ke = Ke_b + Ke_sh
-
 
     def GaussPoints(self,order):
         # quadrature rules in 1D (2D rules are obtained by combining 1Ds as in a grid)
@@ -298,6 +301,27 @@ params = {
   'poisson' : nu,
   'thickness' : t}
 
+#%% test of a single element
+
+node_test = np.array([[1,-1,-1,0],[2,1,-1,0],[3,1,1,0],[4,-1,1,0]])
+
+elem_test = membrane2D(params=params,node=np.array([[1,-1,-1,0],[2,1,-1,0],[3,1,1,0],[4,-1,1,0]]))
+
+ke_rank = np.linalg.matrix_rank(elem_test.Ke)
+
+U, S, VT = np.linalg.svd(elem_test.Ke)
+
+# last three modes are rigid
+phi = VT.T
+phi = phi[:, -4:-1]
+
+sca = 1.0
+mode = 0
+plt.plot(node_test[:,1],node_test[:,2],'ob')
+plt.plot(node_test[:,1]+sca*phi[0::2,mode],node_test[:,2]+sca*phi[1::2,mode],'xr')
+
+
+#%%
 
 BCm = []                                            #Leading nodes
 BCs = []                                            #Following nodes
