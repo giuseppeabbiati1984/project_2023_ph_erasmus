@@ -240,8 +240,6 @@ class membrane2D:
 
         Bsh = np.array([[0,1,1,0]]) @ sp.linalg.block_diag(np.linalg.inv(Jsh),np.linalg.inv(Jsh)) @ Bssh
 
-        print(Bsh)
-
         Ke_sh = self.t * Bsh.transpose() * D[2,2]  * Bsh * np.linalg.det(Jsh) * w * w
 
         self.Ke = Ke_b + Ke_sh
@@ -352,8 +350,6 @@ if type == 'shell':
                 NL[row*NoN+n,0] = row*NoN + n
                 NL[row*NoN+n,1] = coord[eTop[row,0],1] + j*lh/p 
                 NL[row*NoN+n,2] = coord[eTop[row,0],2] + i*lv/m
-                #print(i,j,row,n)
-                #print('-------------------------')
                 n += 1 
 
         ## Elements
@@ -369,8 +365,6 @@ if type == 'shell':
                     EL[row*NoE+(i*p)+j, 1] = EL[row*NoE+(i*p)+j, 0] + 1
                     EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
-
-    #print(NL[100:400,:])
     
     # Boundary conditions
     BCd = np.array([[0,1],[0,2],[p,1],[p,2]])           #Node, dof with blocked displacements
@@ -425,6 +419,23 @@ elif type == 'beam':
 
 ## Main code
 myModel = model(EL,NL,BCd,params,BCm,BCs,force_dof,disp_dof,type)
+pos = NL
+for i in range(NL.shape[0]):
+    for j in range(myModel.df_dof.shape[0]):
+        if pos[i,0] == myModel.df_dof[j,0]:
+            if myModel.df_dof[j,1] == 1:
+                pos[i,1] = pos[i,1] + myModel.df_dof[j,2]
+            elif myModel.df_dof[j,1] ==2:
+                pos[i,2] = pos[i,2] + myModel.df_dof[j,2]
+            elif myModel.df_dof[j,1] == 3:
+                pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*(pos[i,1]-pos[i,0])
+                pos[i,2] = pos[i,2] + myModel.df_dof[j,2]*(pos[i,2]-pos[i,1])
+
+#plot new configuration
+plt.plot([pos[EL[:,0],1],pos[EL[:,1],1]],[pos[EL[:,0],2],pos[EL[:,1],2]])
+plt.plot([pos[EL[:,1],1],pos[EL[:,2],1]],[pos[EL[:,1],2],pos[EL[:,2],2]])
+plt.plot([pos[EL[:,2],1],pos[EL[:,3],1]],[pos[EL[:,2],2],pos[EL[:,3],2]])
+plt.plot([pos[EL[:,0],1],pos[EL[:,3],1]],[pos[EL[:,0],2],pos[EL[:,3],2]])
 
 
 #%% Simple frame
@@ -576,10 +587,11 @@ for i in range(NL.shape[0]):
                 pos[i,1] = pos[i,1] + myModel.df_dof[j,2]
             elif myModel.df_dof[j,1] ==2:
                 pos[i,2] = pos[i,2] + myModel.df_dof[j,2]
-            #elif myModel.df_dof[j,1] == 3:
-            #    pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*sin(myModel.df_dof[j,2])
+            elif myModel.df_dof[j,1] == 3:
+                pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*(pos[i,0]-lh/2)
+                pos[i,2] = pos[i,2] + myModel.df_dof[j,2]*(pos[i,0]-lv/2)
 
-
+#plot new configuration
 plt.plot([pos[EL[:,0],1],pos[EL[:,1],1]],[pos[EL[:,0],2],pos[EL[:,1],2]])
 plt.plot([pos[EL[:,1],1],pos[EL[:,2],1]],[pos[EL[:,1],2],pos[EL[:,2],2]])
 plt.plot([pos[EL[:,2],1],pos[EL[:,3],1]],[pos[EL[:,2],2],pos[EL[:,3],2]])
