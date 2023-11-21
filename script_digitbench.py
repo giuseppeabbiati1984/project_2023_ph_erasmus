@@ -114,7 +114,7 @@ class model:
         self.df = self.df[0]
         self.df_dof = np.concatenate([self.model_dofs, self.df], axis=1)
 
-        print(self.df_dof)
+        #print(self.df_dof)
 
 
 
@@ -190,8 +190,6 @@ class membrane2D:
                              [self.node_ID[2],2],   
                              [self.node_ID[3],1],
                              [self.node_ID[3],2]],dtype="int")
-        self.a = (self.node_coord[0,0]-self.node_coord[1,0])   #increment in horizontal direction (length of element)
-        self.b = (self.node_coord[3,1]-self.node_coord[0,1])   #increment in vertical direction (length of element)
     
         self.compute_K() 
 
@@ -199,7 +197,6 @@ class membrane2D:
     def compute_K(self):
         self.Ke = np.zeros((8,8))                     #element stiffness
         Ke_b = np.zeros((8,8)) 
-        #Ke_sh = np.zeros((8,8)) 
         N = lambda s, t : 1/4* np.array([[-(1-t),  (1-t), (1+t), -(1+t)],
                                          [-(1-s), -(1+s), (1+s),  (1-s)]])
         D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
@@ -216,8 +213,6 @@ class membrane2D:
                 # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
                 J = N(si,tj) @ self.node_coord
 
-                print(np.linalg.det(J))
-
                 Bs = np.zeros((4,8))
                 Bs[0,[0,2,4,6]] = N(si,tj)[0,:] #dphi_ds_val
                 Bs[1,[0,2,4,6]] = N(si,tj)[1,:] #dphi_dt_val
@@ -233,8 +228,6 @@ class membrane2D:
 
         # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
         Jsh = N(r,r) @ self.node_coord
-
-        print(np.linalg.det(Jsh))
 
         Bssh = np.zeros((4,8))
         Bssh[0,[0,2,4,6]] = N(r,r)[0,:] #dphi_ds_val
@@ -303,20 +296,20 @@ params = {
 
 #%% test of a single element
 
-node_test = np.array([[1,-1,-1,0],[2,1,-1,0],[3,1,1,0],[4,-1,1,0]])
+node_test = np.array([[1,-1,-1],[2,1,-1],[3,1,1],[4,-1,1]])
 
-elem_test = membrane2D(params=params,node=np.array([[1,-1,-1,0],[2,1,-1,0],[3,1,1,0],[4,-1,1,0]]))
+elem_test = membrane2D(params=params,node=node_test)
 
-ke_rank = np.linalg.matrix_rank(elem_test.Ke)
+ke_rank = np.linalg.matrix_rank(elem_test.Ke) #should be 5
 
 U, S, VT = np.linalg.svd(elem_test.Ke)
 
 # last three modes are rigid
 phi = VT.T
-phi = phi[:, -4:-1]
+phi = phi[:, -3:]
 
 sca = 1.0
-mode = 0
+mode = 2
 plt.plot(node_test[:,1],node_test[:,2],'ob')
 plt.plot(node_test[:,1]+sca*phi[0::2,mode],node_test[:,2]+sca*phi[1::2,mode],'xr')
 
@@ -494,8 +487,9 @@ if type == 'shell':
     b = 10     #Width of beam [mm]
     t = 0.4   #Thickness of beam [mm]
     I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
-    p = 5       #number of elements in which the horizontal line will be divided
-    m = 5       #number of elements in which the vertical line will be divided
+    p = 5      #number of elements in which the horizontal line will be divided
+    m = 50       #number of elements in which the vertical line will be divided
+    Le = 2      #element length
     NoN = (p+1)*(m+1)                #number of nodes
     NoE = p*m                        #number of elements
     NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
@@ -505,16 +499,16 @@ if type == 'shell':
     nodes = np.zeros((12,3))
     nodes[0,:] = [0, 0.0, 0.0]
     nodes[1,:] = [1, h, 0.0]
-    nodes[2,:] = [2, 0.0, 100.0]
-    nodes[3,:] = [3, h, 100.0]
-    nodes[4,:] = [4, 100.0-h, 0.0]
-    nodes[5,:] = [5, 100.0, 0.0]
-    nodes[6,:] = [6, 100.0-h, 100.0]
-    nodes[7,:] = [7, 100.0, 100.0]
-    nodes[8,:] = [8, 0.0, 100.0]
-    nodes[9,:] = [9, 100.0, 100.0]
-    nodes[10,:] = [10, 0.0, 100.0+h]
-    nodes[11,:] = [11, 100.0, 100.0+h]
+    nodes[2,:] = [2, 0.0, 100]
+    nodes[3,:] = [3, h, 100]
+    nodes[4,:] = [4, 100-h, 0.0]
+    nodes[5,:] = [5, 100, 0.0]
+    nodes[6,:] = [6, 100-h, 100]
+    nodes[7,:] = [7, 100, 100]
+    nodes[8,:] = [8, 0.0, 100]
+    nodes[9,:] = [9, 100, 100]
+    nodes[10,:] = [10, 0.0, 100+h]
+    nodes[11,:] = [11, 100, 100+h]
 
     # Elements
     elements = np.zeros((3,4),dtype=int)
@@ -528,12 +522,17 @@ if type == 'shell':
     #plt.plot([nodes[elements[:,2],1],nodes[elements[:,3],1]],[nodes[elements[:,2],2],nodes[elements[:,3],2]])
     #plt.plot([nodes[elements[:,0],1],nodes[elements[:,3],1]],[nodes[elements[:,0],2],nodes[elements[:,3],2]])
 
-    BCm = np.array([[2,1],[2,2],[2,3],[7,1],[7,2],[7,3]])   #Leading nodes
-    BCs = np.array([[8,1],[8,2],[8,3],[9,1],[9,2],[9,3]])   #Following nodes
-    BCd = np.array([[0,1],[0,2],[1,1],[1,2],[4,1],[4,2],[5,1],[5,2]])               #Node, dof with blocked displacements
-    pre_forces = np.array([[3,1,force]])                        #Prescribed forces [Node, dof, value of acting force]
+    BCm = []   #Leading nodes
+    BCs = []   #Following nodes
+    BCd = np.zeros((4*p+4,2)) #Node, dof with blocked displacements
+    for r in range(0,2):
+        for i in range(0,6):
+            BCd[2*i+(r*12),0] = i+r*NoN
+            BCd[2*i+(r*12),1] = 1
+            BCd[2*i+(r*12)+1,0] = i+r*NoN
+            BCd[2*i+(r*12)+1,1] = 2
+    pre_forces = np.array([[3*NoN-m-1,1,force]])                        #Prescribed forces [Node, dof, value of acting force]
     pre_disp = np.array([[3,1,0]])                              #Prescribed displacement [Node, dof, value of displacement]
-
 
     for row in range(0,elements.shape[0]):
         ## Nodes
@@ -541,6 +540,8 @@ if type == 'shell':
 
         lh = nodes[elements[row,1],1]-nodes[elements[row,0],1]
         lv = nodes[elements[row,2],2]-nodes[elements[row,0],2]
+        p = int(lh/Le)                        #number of elements in which the horizontal line will be divided
+        m = int(lv/Le)                        #number of elements in which the vertical line will be divided
 
         for i in range(0,m+1):
             for j in range(0,p+1):
@@ -562,6 +563,17 @@ if type == 'shell':
                     EL[row*NoE+(i*p)+j, 1] = EL[row*NoE+(i*p)+j, 0] + 1
                     EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
+
+    for row in range(0,elements.shape[0]):
+        for i in range(0,NL.shape[0]):
+            for j in range(0,NL.shape[0]):
+                if np.all(NL[i,1:3] == NL[j,1:3]):
+                    NL[j,:] = NL[i,:]
+                    for m in range(0,EL.shape[0]):
+                        for n in range(0,4):
+                            if EL[m,n] == j:
+                                EL[m,n] = NL[i,0]
+
 
     ## Plot
     #plt.plot([NL[EL[:,0],1],NL[EL[:,1],1]],[NL[EL[:,0],2],NL[EL[:,1],2]])
@@ -611,15 +623,16 @@ for i in range(NL.shape[0]):
                 pos[i,1] = pos[i,1] + myModel.df_dof[j,2]
             elif myModel.df_dof[j,1] ==2:
                 pos[i,2] = pos[i,2] + myModel.df_dof[j,2]
-            elif myModel.df_dof[j,1] == 3:
-                pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*(pos[i,0]-lh/2)
-                pos[i,2] = pos[i,2] + myModel.df_dof[j,2]*(pos[i,0]-lv/2)
+            #elif myModel.df_dof[j,1] == 3:
+            #    pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*(hoogte verschil vanaf midden beam) 
+            #    pos[i,2] = pos[i,2] + myModel.df_dof[j,2]*(horizontale afstand vanaf midden beam)
 
 #plot new configuration
 plt.plot([pos[EL[:,0],1],pos[EL[:,1],1]],[pos[EL[:,0],2],pos[EL[:,1],2]])
 plt.plot([pos[EL[:,1],1],pos[EL[:,2],1]],[pos[EL[:,1],2],pos[EL[:,2],2]])
 plt.plot([pos[EL[:,2],1],pos[EL[:,3],1]],[pos[EL[:,2],2],pos[EL[:,3],2]])
 plt.plot([pos[EL[:,0],1],pos[EL[:,3],1]],[pos[EL[:,0],2],pos[EL[:,3],2]])
+plt.plot(pos[pre_forces[0,0],1],pos[pre_forces[0,0],2],'ro')
 
 
 # %% Validating the dense2sparse function 
