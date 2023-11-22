@@ -3,6 +3,7 @@ import numpy as np
 import scipy as sp
 import math
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 # Function for conversion of dense to sparse matrix
 def dense2sparse(A):
@@ -96,7 +97,7 @@ class model:
         self.compute_Zf()
         self.compute_Zu()
         self.Zu = self.Zu.todense()
-        self.u = self.u.reshape(-1,1)
+        self.u = self.u.squeeze()
 
         self.Kd = self.Zf.transpose() @ self.f
         self.Kd = self.Kd.reshape(-1, 1)        # Reshape to a 2D array
@@ -116,7 +117,18 @@ class model:
 
         #print(self.df_dof)
 
+    def plot(self):
 
+        # compute scaling factors
+
+        self.fig, self.ax = plt.subplots()
+
+        for myElement in self.myElements:
+            myElement.plot(self.ax,self.Zu @ self.u,model_size)
+
+        self.ax.set_xlim(0, 150)
+        self.ax.set_ylim(0, 150)
+        plt.show()
 
 class beam2D:
 
@@ -264,6 +276,15 @@ class membrane2D:
 
         # compact row, compat col or compact diag
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
+
+
+    def plot(self,ax,u):
+
+        print('plot membrane element')
+
+        # Add the polygon patch to the axes
+        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+
 
 
 #%% Cantilever beam
@@ -468,7 +489,7 @@ I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
 A = b*h     #Area [mm2]
 Ndof = 3    #Number of degrees of freedom
 p = 5.0       #number of elements in which the horizontal line will be divided
-m = 5.0       #number of elements in which the vertical line will be divided
+m = 50.0       #number of elements in which the vertical line will be divided
 force = 100
 type = 'shell'
 
@@ -489,7 +510,7 @@ if type == 'shell':
     I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
     p = 5      #number of elements in which the horizontal line will be divided
     m = 50       #number of elements in which the vertical line will be divided
-    Le = 2      #element length
+    Le = 2      #element length *** redundant ***
     NoN = (p+1)*(m+1)                #number of nodes
     NoE = p*m                        #number of elements
     NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
