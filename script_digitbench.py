@@ -21,15 +21,16 @@ class model:
         self.BCm = BCm
         self.BCs = BCs
         self.BCf = force_dof[:,0:2]
-        self.f = force_dof[:,2]
+        self.f = force_dof[:,[2]]
         self.BCu = disp_dof[:,0:2]
-        self.u = disp_dof[:,2]
+        self.u = disp_dof[:,[2]]
         self.EL = EL
         self.model_dofs = np.zeros((0,2),dtype=int)
 
         self.get_unique_dof(params,NL,type)
         self.stiffness_matrix()
         self.compute_displacement()
+        self.plot()
         
     # Get unique DOF list
     def get_unique_dof(self,params,NL,type):
@@ -40,7 +41,6 @@ class model:
                 self.myElements.append(beam2D(params,NL[self.EL[i,:],:]))
             elif type == 'shell':
                 self.myElements.append(membrane2D(params, NL[self.EL[i,:],:]))
-            np.append(self.model_dofs, self.myElements[i].dof, axis=0)
 
             for idr, element_row in enumerate(self.myElements[i].dof):
                 for j, row in enumerate(self.BCs):
@@ -63,11 +63,9 @@ class model:
         for i in range(0,self.EL.shape[0]):
             self.myElements[i].compute_Z(self.model_dofs)
             Ze_sp = self.myElements[i].Ze
-            Ke = self.myElements[i].Ke
+            Ke_sp = self.myElements[i].Ke
 
-            Ze_dense = Ze_sp.todense()
-
-            self.K += Ze_dense.transpose() @ Ke @ Ze_dense                  #Global stiffness matrix
+            self.K += Ze_sp.transpose() @ Ke_sp @ Ze_sp   #Global stiffness matrix
 
     def compute_Zf(self):
         self.row_index = []
@@ -96,26 +94,24 @@ class model:
     def compute_displacement(self):
         self.compute_Zf()
         self.compute_Zu()
-        self.Zu = self.Zu.todense()
-        self.u = self.u.squeeze()
 
         self.Kd = self.Zf.transpose() @ self.f
-        self.Kd = self.Kd.reshape(-1, 1)        # Reshape to a 2D array
         self.Kinv = np.linalg.inv(self.K)
 
         #displacement because of prescribed displacement
-        self.lamb = np.linalg.lstsq(self.Zu @ self.Kinv @ self.Zu.transpose(), self.u - self.Zu @ self.Kinv @ self.Kd)
-        self.lamb = self.lamb[0]
-        self.du = np.linalg.lstsq(self.K, self.Kd + self.Zu.transpose() @ self.lamb)
-        self.du = self.du[0]
+        self.lamb = np.linalg.lstsq(self.Zu @ self.Kinv @ self.Zu.transpose(), self.u - self.Zu @ self.Kinv @ self.Kd)[0]
+        self.du = self.Kinv @ (self.Kd + self.Zu.transpose() @ self.lamb)
         self.du_dof = np.concatenate([self.model_dofs, self.du], axis=1)
 
         #displacement because of prescribed force
-        self.df = np.linalg.lstsq(self.K, self.Kd)
-        self.df = self.df[0]
+        self.df = np.linalg.lstsq(self.K, self.Kd)[0]
         self.df_dof = np.concatenate([self.model_dofs, self.df], axis=1)
 
-        #print(self.df_dof)
+        #u = np.zeros(self.model_dofs.shape[0])
+        u = self.df + self.du
+        self.u_dof = np.concatenate([self.model_dofs, u],axis=1)
+
+        print(self.u_dof)
 
     def plot(self):
 
@@ -124,10 +120,10 @@ class model:
         self.fig, self.ax = plt.subplots()
 
         for myElement in self.myElements:
-            myElement.plot(self.ax,self.Zu @ self.u,model_size)
+            myElement.plot(self.ax, self.u_dof)
 
-        self.ax.set_xlim(0, 150)
-        self.ax.set_ylim(0, 150)
+        self.ax.set_xlim(-1, 120)
+        self.ax.set_ylim(-1, 120)
         plt.show()
 
 class beam2D:
@@ -138,6 +134,7 @@ class beam2D:
         self.A = params['area']
         self.node_ID = node[:,0].astype(int)
         self.node_coord = node[:,1:3]
+
         self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
                              [self.node_ID[0],2],   #dof 2 = bending 
                              [self.node_ID[0],3],   #dof 3 = moment 
@@ -167,7 +164,7 @@ class beam2D:
                             [0, -6*self.E*self.I/self.L**2,  2*self.E*self.I/self.L,    0,  6*self.E*self.I/self.L**2,   4*self.E*self.I/self.L    ]],dtype="float")
 
         # Global element stiffness matrix
-        self.Ke = np.linalg.multi_dot([np.transpose(self.R),self.Kl,self.R])
+        self.Ke = dense2sparse(np.linalg.multi_dot([np.transpose(self.R),self.Kl,self.R]))
 
 
     def compute_Z(self,modeldofs):
@@ -183,6 +180,23 @@ class beam2D:
         # compact row, compat col or compact diag
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
+    def plot(self,ax,u_dof):
+
+        #scaling factor?
+
+        # Add the polygon patch to the axes
+        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+
+        # update position
+        pos = self.node_coord
+        for i in range(self.node_coord.shape[0]):
+            for j in range(u_dof.shape[0]):
+                if self.node_coord[i,0] == u_dof[j,0]:
+                    if u_dof[j,1] == 1:
+                        pos[i,0] = self.node_coord[i,0] + u_dof[j,2]
+                    elif u_dof[j,1] == 2:
+                        pos[i,1] = self.node_coord[i,1] + u_dof[j,2]
+        ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
 class membrane2D:
 
@@ -278,16 +292,26 @@ class membrane2D:
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
 
-    def plot(self,ax,u):
+    def plot(self,ax,u_dof):
 
-        print('plot membrane element')
+        #scaling factor?
 
         # Add the polygon patch to the axes
         ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
+        # update position
+        pos = self.node_coord
+        for i in range(self.node_coord.shape[0]):
+            for j in range(u_dof.shape[0]):
+                if self.node_coord[i,0] == u_dof[j,0]:
+                    if u_dof[j,1] == 1:
+                        pos[i,0] = self.node_coord[i,0] + u_dof[j,2]
+                    elif u_dof[j,1] == 2:
+                        pos[i,1] = self.node_coord[i,1] + u_dof[j,2]
+        ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
 
-#%% Cantilever beam
+#%% Test setup
 
 ## Initialization
 # Parameters
@@ -322,6 +346,7 @@ node_test = np.array([[1,-1,-1],[2,1,-1],[3,1,1],[4,-1,1]])
 elem_test = membrane2D(params=params,node=node_test)
 
 ke_rank = np.linalg.matrix_rank(elem_test.Ke) #should be 5
+print(ke_rank)
 
 U, S, VT = np.linalg.svd(elem_test.Ke)
 
@@ -335,7 +360,7 @@ plt.plot(node_test[:,1],node_test[:,2],'ob')
 plt.plot(node_test[:,1]+sca*phi[0::2,mode],node_test[:,2]+sca*phi[1::2,mode],'xr')
 
 
-#%%
+#%% Test setup cont'd
 
 BCm = []                                            #Leading nodes
 BCs = []                                            #Following nodes
@@ -480,16 +505,14 @@ plt.plot([pos[EL[:,0],1],pos[EL[:,3],1]],[pos[EL[:,0],2],pos[EL[:,3],2]])
 
 ## Initialization
 # Parameters
-E = 200e9   #Young's modulus [Pa]
-nu = 0.3
-h = 0.1     #Height of beam [mm]
-b = 0.1     #Width of beam [mm]
-t = 0.004   #Thickness of beam [mm]
+E = 200e9       #Young's modulus [Pa]
+nu = 0.3        #Poisson ratio
+h = 10          #Height of beam [mm]
+b = 10          #Width of beam [mm]
+t = 0.4         #Thickness of beam [mm]
 I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
-A = b*h     #Area [mm2]
-Ndof = 3    #Number of degrees of freedom
-p = 5.0       #number of elements in which the horizontal line will be divided
-m = 50.0       #number of elements in which the vertical line will be divided
+A = b*h         #Area [mm2]
+Ndof = 3        #Number of degrees of freedom
 force = 100
 type = 'shell'
 
@@ -497,24 +520,11 @@ params = {
   'youngs_modulus': E,
   'inertia': I,
   'area' : A,
-  'p' : p,
-  'm' : m,
   'poisson' : nu,
   'thickness' : t}
 
 
 if type == 'shell':
-    h = 10     #Height of beam [mm]
-    b = 10     #Width of beam [mm]
-    t = 0.4   #Thickness of beam [mm]
-    I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
-    p = 5      #number of elements in which the horizontal line will be divided
-    m = 50       #number of elements in which the vertical line will be divided
-    Le = 2      #element length *** redundant ***
-    NoN = (p+1)*(m+1)                #number of nodes
-    NoE = p*m                        #number of elements
-    NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
-    EL = np.zeros((3*NoE, 4),dtype="int")                  #extended element list 
 
     # Node geometry
     nodes = np.zeros((12,3))
@@ -537,23 +547,26 @@ if type == 'shell':
     elements[1,:] = [4, 5, 7, 6]
     elements[2,:] = [8, 9, 11, 10]
 
-    # Plot
-    #plt.plot([nodes[elements[:,0],1],nodes[elements[:,1],1]],[nodes[elements[:,0],2],nodes[elements[:,1],2]])
-    #plt.plot([nodes[elements[:,1],1],nodes[elements[:,2],1]],[nodes[elements[:,1],2],nodes[elements[:,2],2]])
-    #plt.plot([nodes[elements[:,2],1],nodes[elements[:,3],1]],[nodes[elements[:,2],2],nodes[elements[:,3],2]])
-    #plt.plot([nodes[elements[:,0],1],nodes[elements[:,3],1]],[nodes[elements[:,0],2],nodes[elements[:,3],2]])
+    # Parameters
+    kr = 2                           #number of elements in which the shorter side will be divided
+    lg = kr*10                       #number of elements in which the longer side will be divided
+    NoN = (kr+1)*(lg+1)                #number of nodes per beam
+    NoE = kr*lg                        #number of elements per beam
+    NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
+    EL = np.zeros((3*NoE, 4),dtype="int")    #extended element list 
 
+    # Boundary conditions
     BCm = []   #Leading nodes
     BCs = []   #Following nodes
-    BCd = np.zeros((4*p+4,2)) #Node, dof with blocked displacements
+    BCd = np.zeros((4*(kr+1),2)) #Node, dof with blocked displacements
     for r in range(0,2):
-        for i in range(0,6):
-            BCd[2*i+(r*12),0] = i+r*NoN
-            BCd[2*i+(r*12),1] = 1
-            BCd[2*i+(r*12)+1,0] = i+r*NoN
-            BCd[2*i+(r*12)+1,1] = 2
-    pre_forces = np.array([[3*NoN-m-1,1,force]])                        #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.array([[3,1,0]])                              #Prescribed displacement [Node, dof, value of displacement]
+        for i in range(0,kr+1):
+            BCd[2*i+(r*2*(kr+1)),0] = i+r*NoN
+            BCd[2*i+(r*2*(kr+1)),1] = 1
+            BCd[2*i+(r*2*(kr+1))+1,0] = i+r*NoN
+            BCd[2*i+(r*2*(kr+1))+1,1] = 2
+    pre_forces = np.array([[3*NoN-lg-1,1,force],[3*NoN-lg-1,2,0]])      #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.array([[0,1,0],[0,2,0]])                              #Prescribed displacement [Node, dof, value of displacement]
 
     for row in range(0,elements.shape[0]):
         ## Nodes
@@ -561,8 +574,13 @@ if type == 'shell':
 
         lh = nodes[elements[row,1],1]-nodes[elements[row,0],1]
         lv = nodes[elements[row,2],2]-nodes[elements[row,0],2]
-        p = int(lh/Le)                        #number of elements in which the horizontal line will be divided
-        m = int(lv/Le)                        #number of elements in which the vertical line will be divided
+        if lh > lv:
+            p = lg          #number of elements in which the horizontal line will be divided
+            m = kr          #number of elements in which the vertical line will be divided
+        elif lv > lh:
+            p = kr          #number of elements in which the horizontal line will be divided
+            m = lg          #number of elements in which the vertical line will be divided
+
 
         for i in range(0,m+1):
             for j in range(0,p+1):
@@ -590,32 +608,25 @@ if type == 'shell':
             for j in range(0,NL.shape[0]):
                 if np.all(NL[i,1:3] == NL[j,1:3]):
                     NL[j,:] = NL[i,:]
-                    for m in range(0,EL.shape[0]):
-                        for n in range(0,4):
-                            if EL[m,n] == j:
-                                EL[m,n] = NL[i,0]
-
-
-    ## Plot
-    #plt.plot([NL[EL[:,0],1],NL[EL[:,1],1]],[NL[EL[:,0],2],NL[EL[:,1],2]])
-    #plt.plot([NL[EL[:,1],1],NL[EL[:,2],1]],[NL[EL[:,1],2],NL[EL[:,2],2]])
-    #plt.plot([NL[EL[:,2],1],NL[EL[:,3],1]],[NL[EL[:,2],2],NL[EL[:,3],2]])
-    #plt.plot([NL[EL[:,0],1],NL[EL[:,3],1]],[NL[EL[:,0],2],NL[EL[:,3],2]])
+                    for a in range(0,EL.shape[0]):
+                        for b in range(0,4):
+                            if EL[a,b] == j:
+                                EL[a,b] = NL[i,0]
 
 
 elif type == 'beam':
 
     # Node geometry
-    NL = np.zeros((6,3))
+    NL = np.zeros((6,3),dtype="int")
     NL[0,:] = [0, 0.0, 0.0]
-    NL[1,:] = [1, 0.0, 1.0]
-    NL[2,:] = [2, 1.0, 0.0]
-    NL[3,:] = [3, 1.0, 1.0]
-    NL[4,:] = [4, 0.0, 1.0]
-    NL[5,:] = [5, 1.0, 1.0]
+    NL[1,:] = [1, 0.0, 100.0]
+    NL[2,:] = [2, 100.0, 0.0]
+    NL[3,:] = [3, 100.0, 100.0]
+    NL[4,:] = [4, 0.0, 100.0]
+    NL[5,:] = [5, 100.0, 100.0]
 
     # Elements
-    EL = np.zeros((3,2),dtype=int)
+    EL = np.zeros((3,2),dtype="int")
     EL[0,0] = NL[0,0]
     EL[0,1] = NL[1,0]
     EL[1,0] = NL[2,0]
@@ -624,37 +635,131 @@ elif type == 'beam':
     EL[2,1] = NL[5,0]
 
     # Plot the initial geometry
-    plt.plot([nodes[elements[:,0],1],nodes[elements[:,1],1]],[nodes[elements[:,0],2],nodes[elements[:,1],2]])
+    plt.plot([NL[EL[:,0],1],NL[EL[:,1],1]],[NL[EL[:,0],2],NL[EL[:,1],2]])
 
     # Boundary conditions
     BCd = np.array([[0,1],[0,2],[2,1],[2,2]])               #Node, dof with blocked displacements
     BCm = np.array([[1,1],[1,2],[1,3],[3,1],[3,2],[3,3]])   #Leading nodes
     BCs = np.array([[4,1],[4,2],[4,3],[5,1],[5,2],[5,3]])   #Following nodes
-    pre_forces = np.array([[1,1,force]])                        #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.array([[1,1,0]])                              #Prescribed displacement [Node, dof, value of displacement]
+    pre_forces = np.array([[1,1,force]])                    #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.array([[1,1,10]])                         #Prescribed displacement [Node, dof, value of displacement]
 
 
 ## Main code
 myModel = model(EL,NL,BCd,params,BCm,BCs,pre_forces,pre_disp,type)
-pos = NL
-for i in range(NL.shape[0]):
-    for j in range(myModel.df_dof.shape[0]):
-        if pos[i,0] == myModel.df_dof[j,0]:
-            if myModel.df_dof[j,1] == 1:
-                pos[i,1] = pos[i,1] + myModel.df_dof[j,2]
-            elif myModel.df_dof[j,1] ==2:
-                pos[i,2] = pos[i,2] + myModel.df_dof[j,2]
-            #elif myModel.df_dof[j,1] == 3:
-            #    pos[i,1] = pos[i,1] + myModel.df_dof[j,2]*(hoogte verschil vanaf midden beam) 
-            #    pos[i,2] = pos[i,2] + myModel.df_dof[j,2]*(horizontale afstand vanaf midden beam)
 
-#plot new configuration
-plt.plot([pos[EL[:,0],1],pos[EL[:,1],1]],[pos[EL[:,0],2],pos[EL[:,1],2]])
-plt.plot([pos[EL[:,1],1],pos[EL[:,2],1]],[pos[EL[:,1],2],pos[EL[:,2],2]])
-plt.plot([pos[EL[:,2],1],pos[EL[:,3],1]],[pos[EL[:,2],2],pos[EL[:,3],2]])
-plt.plot([pos[EL[:,0],1],pos[EL[:,3],1]],[pos[EL[:,0],2],pos[EL[:,3],2]])
-plt.plot(pos[pre_forces[0,0],1],pos[pre_forces[0,0],2],'ro')
+#%% Cantilever beam
 
+## Initialization
+# Parameters
+E = 200e9       #Young's modulus [Pa]
+nu = 0.3        #Poisson ratio
+h = 10          #Height of beam [mm]
+b = 10          #Width of beam [mm]
+t = 0.4         #Thickness of beam [mm]
+I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
+A = b*h         #Area [mm2]
+Ndof = 3        #Number of degrees of freedom
+force = 100
+type = 'beam'
+
+params = {
+  'youngs_modulus': E,
+  'inertia': I,
+  'area' : A,
+  'poisson' : nu,
+  'thickness' : t}
+
+
+if type == 'shell':
+
+    # Node geometry
+    nodes = np.zeros((4,3))
+    nodes[0,:] = [0, 0.0, 0.0]
+    nodes[1,:] = [1, 100, 0]
+    nodes[2,:] = [2, 0, 10]
+    nodes[3,:] = [3, 100, 10]
+
+    # Elements
+    elements = np.zeros((1,4),dtype=int)
+    elements[0,:] = [0, 1, 3, 2]
+
+    # Parameters
+    kr = 2                           #number of elements in which the shorter side will be divided
+    lg = kr*10                       #number of elements in which the longer side will be divided
+    NoN = (p+1)*(m+1)                #number of nodes per beam
+    NoE = p*m                        #number of elements per beam
+    NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
+    EL = np.zeros((3*NoE, 4),dtype="int")    #extended element list 
+
+    # Boundary conditions
+    BCm = []   #Leading nodes
+    BCs = []   #Following nodes
+    BCd = np.array([[0,1],[0,2],[2,1],[2,2]]) #Node, dof with blocked displacements
+    pre_forces = np.array([[3,2,-force]])      #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.array([[0,1,0],[0,2,0]])                              #Prescribed displacement [Node, dof, value of displacement]
+
+    for row in range(0,elements.shape[0]):
+        ## Nodes
+        n = 0       #this will allow us to go through rows in node list
+
+        lh = nodes[elements[row,1],1]-nodes[elements[row,0],1]
+        lv = nodes[elements[row,2],2]-nodes[elements[row,0],2]
+        if lh > lv:
+            p = lg          #number of elements in which the horizontal line will be divided
+            m = kr          #number of elements in which the vertical line will be divided
+        elif lv > lh:
+            p = kr          #number of elements in which the horizontal line will be divided
+            m = lg          #number of elements in which the vertical line will be divided
+
+        for i in range(0,m+1):
+            for j in range(0,p+1):
+                NL[row*NoN+n,0] = row*NoN + n
+                NL[row*NoN+n,1] = nodes[elements[row,0],1] + j*lh/p 
+                NL[row*NoN+n,2] = nodes[elements[row,0],2] + i*lv/m
+                n += 1 
+
+        ## Elements
+        for i in range(0,m):
+            for j in range(0,p):
+                if j == 0:      #most left elements
+                    EL[row*NoE+(i*p), 0] = row*NoN + i*(p+1)
+                    EL[row*NoE+(i*p), 1] = EL[row*NoE+(i*p), 0] + 1
+                    EL[row*NoE+(i*p), 3] = row*NoN + (i+1)*(p+1)
+                    EL[row*NoE+(i*p), 2] = EL[row*NoE+(i*p), 3] + 1
+                else:
+                    EL[row*NoE+(i*p)+j, 0] = EL[row*NoE+(i*p)+(j-1), 1]
+                    EL[row*NoE+(i*p)+j, 1] = EL[row*NoE+(i*p)+j, 0] + 1
+                    EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
+                    EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
+
+
+elif type == 'beam':
+
+    # Node geometry
+    NL = np.zeros((2,3),dtype="int")
+    NL[0,:] = [0, 0.0, 0]
+    NL[1,:] = [1, 100.0, 0.0]
+
+
+    # Elements
+    EL = np.zeros((1,2),dtype="int")
+    EL[0,:] = [0,1]
+
+
+    # Plot the initial geometry
+    plt.plot([NL[EL[:,0],1],NL[EL[:,1],1]],[NL[EL[:,0],2],NL[EL[:,1],2]])
+
+    # Boundary conditions
+    BCd = np.array([[0,1],[0,2]])               #Node, dof with blocked displacements
+    BCm = []  #Leading nodes
+    BCs = []  #Following nodes
+    pre_forces = np.array([[3,2,-force]])                    #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.array([[0,1,0]])                          #Prescribed displacement [Node, dof, value of displacement]
+
+
+## Main code
+myModel = model(EL,NL,BCd,params,BCm,BCs,pre_forces,pre_disp,type)
 
 # %% Validating the dense2sparse function 
 
@@ -729,175 +834,20 @@ print(total_matrix)
 print('------------')
 print(total_sp)
 
-#%% Membrane based model
+#%% difference append and concatenate
 
 import numpy as np
-import scipy as sp
-import math
-import matplotlib.pyplot as plt
 
+result_append = np.zeros((0,3))
+for i in range(0,5):
+    # Example arrays
+    #arr1 = np.array([1, 2*i, 3])
+    arr2 = np.array([4*i, 5, 6+i])
 
-## Initialization
-# Parameters
-E = 200e9   #Young's modulus [Pa]
-nu = 0.3    #Poisson's ratio 
-h = 10 #0.1     #Height of beam [m]
-b = 10 #0.1     #Width of beam [m]
-Lh = 1642   #Length of horizontal beams [m]
-Lv = 1786   #Length of vertical beams [m]
-t = 0.004   #Thickness of beam [m]
-I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [m4]
-A = b*h     #Area [m2]
-Ndof = 3    #Number of degrees of freedom
-p = 10       #number of elements in which the horizontal line will be divided
-m = 10       #number of elements in which the vertical line will be divided
-type = 'shell'   #beam or shell
+    # Using np.append
+    result_append = np.append(result_append, arr2)
+    print("np.append result:", result_append)
 
-params = {
-  'youngs_modulus': E,
-  'inertia': I,
-  'area' : A,
-  'p' : p,
-  'm' : m,
-  'poisson' : nu,
-  'thickness' : t}
-
-# Node geometry
-coord = np.zeros((12,3))
-coord[0,:] = [0, 0.0, 0.0]
-coord[1,:] = [1, 917.0, 0.0]
-coord[2,:] = [2, Lv, 0.0]
-coord[3,:] = [3, Lv, Lh-330]
-coord[4,:] = [4, Lv, Lh]
-coord[5,:] = [5, 0.0, Lh]
-coord[6,:] = [6, 0.0, 996.0]
-coord[7,:] = [7, 660.0, 996.0]
-coord[8,:] = [8, 917.0, 996.0]
-coord[9,:] = [9, 917, 996.0-21.0]
-coord[10,:] = [10, 917.0, 675.0]
-coord[11,:] = [11, Lv-500, Lh-330]
-
-# Elements
-eTop = np.zeros((13,2),dtype=int)
-for i in range(len(coord)-2):
-    eTop[i,0] = coord[i,0]
-    eTop[i,1] = coord[i+1,0]
-eTop[10,0] = coord[10,0]
-eTop[10,1] = coord[1,0]
-eTop[11,0] = coord[0,0]
-eTop[11,1] = coord[6,0]
-eTop[12,0] = coord[3,0]
-eTop[12,1] = coord[11,0]
-
-p = 10       #number of elements in which the horizontal line will be divided
-m = 10       #number of elements in which the vertical line will be divided
-NoN = (p+1)*(m+1)                #number of nodes
-NoE = p*m                        #number of elements
-NL = np.zeros((13*NoN, 3),dtype="int")    #extended node list
-EL = np.zeros((13*NoE, 4),dtype="int")                  #extended element list 
-
-
-for row in range(0,eTop.shape[0]):
-    ## Nodes
-    n = 0       #this will allow us to go through rows in node list
-
-    lh = coord[eTop[row,1],1]-coord[eTop[row,0],1]
-    lv = coord[eTop[row,1],2]-coord[eTop[row,0],2]
-    if lh == 0:
-        lh = h
-    if lv == 0:
-        lv = b
-
-    for i in range(0,m+1):
-        for j in range(0,p+1):
-            NL[row*NoN+n,0] = row*NoN + n
-            NL[row*NoN+n,1] = coord[eTop[row,0],1] + j*lh/p 
-            NL[row*NoN+n,2] = coord[eTop[row,0],2] + i*lv/m
-            n += 1 
-
-    ## Elements
-    for i in range(0,m):
-        for j in range(0,p):
-            if j == 0:      #most left elements
-                EL[row*NoE+(i*p), 0] = row*NoN + i*p
-                EL[row*NoE+(i*p), 1] = EL[row*NoE, 0] + 1
-                EL[row*NoE+(i*p), 3] = row*NoN + (i+1)*p
-                EL[row*NoE+(i*p), 2] = EL[row*NoE, 3] + 1
-            else:
-                EL[row*NoE+(i*p)+j, 0] = EL[row*NoE+(i*p)+(j-1), 1]
-                EL[row*NoE+(i*p)+j, 1] = EL[row*NoE+(i*p)+j, 0] + 1
-                EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
-                EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
-
-
-
-
-
-class membrane2D:
-
-    def __init__(self, params, node):
-        self.E = params['youngs_modulus']
-        self.nu = params['poisson']        
-        self.t = params['thickness']
-        self.NPE = 4                        #nodes per element
-        self.PD = 2                         #problem dimension
-        self.node_ID = node[:,0].astype(int)
-        self.node_coord = node[:,1:3]
-        self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
-                             [self.node_ID[0],2],   #dof 2 = bending 
-                             [self.node_ID[1],1],
-                             [self.node_ID[1],2],
-                             [self.node_ID[2],1],   
-                             [self.node_ID[2],2],   
-                             [self.node_ID[3],1],
-                             [self.node_ID[3],2]],dtype="int")
-        self.a = (self.node_coord[0,0]-self.node_coord[1,0])   #increment in horizontal direction (length of element)
-        self.b = (self.node_coord[3,1]-self.node_coord[0,1])   #increment in vertical direction (length of element)
-
-        self.D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
-                           [self.nu*self.E/(1-self.nu**2),  self.E/(1-self.nu**2),          0],
-                           [0,                              0,                              self.E/(2*(1+self.nu))]])
-        self.compute_K() 
-
-
-    def compute_K(self):
-        self.Ke = np.zeros((8,8))                     #element stiffness
-        N = lambda s, t : 1/4* np.array([[-(1-t),  (1-t), (1+t), -(1+t)],
-                                          [-(1-s), -(1+s), (1+s),  (1-s)]])
-
-        # quadrature rule
-        r,w = self.GaussPoints(2)
-
-        # numerical ingration
-        for si,wi in zip(r,w):
-            for tj,wj in zip(r,w):
-
-                # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
-                J = N(si,tj) @ self.node_coord
-
-                Bs = np.zeros((4,8))
-                Bs[0,[0,2,4,6]] = N(si,tj)[0,:] #dphi_ds_val
-                Bs[1,[0,2,4,6]] = N(si,tj)[1,:] #dphi_dt_val
-                Bs[2,[1,3,5,7]] = N(si,tj)[0,:]
-                Bs[3,[1,3,5,7]] = N(si,tj)[1,:]
-
-                B = np.array([[1,0,0,0],[0,0,0,1],[0,1,1,0]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
-
-                self.Ke += self.t * B.transpose() @ self.D @ B * np.linalg.det(J) * wi * wj
-
-    def GaussPoints(self,order):
-        # quadrature rules in 1D (2D rules are obtained by combining 1Ds as in a grid)
-        if order == 1:
-            r = np.array([0.0])
-            w = np.array([2.0])
-        elif order == 2:
-            r = np.array([-1/math.sqrt(3),+1/math.sqrt(3)])
-            w = np.array([1.0,1.0])
-
-        return r,w
-
-
-
-## Main code
-for i in range(0,EL.shape[0]):
-    myModel = membrane2D(params,NL[EL[i,:],:])
+    # Using np.concatenate
+    result_concatenate = np.concatenate((result_append, arr2))
+    print("np.concatenate result:", result_concatenate)
