@@ -1,9 +1,11 @@
 #%%
+
 import numpy as np
 import scipy as sp
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from scipy.sparse.linalg import spsolve
 
 # Function for conversion of dense to sparse matrix
 def dense2sparse(A):
@@ -14,6 +16,7 @@ def dense2sparse(A):
 
     return B
 
+#%%
 class model:
 
     def __init__(self,EL,NL,BCd,params,BCm,BCs,force_dof,disp_dof,type):
@@ -21,9 +24,9 @@ class model:
         self.BCm = BCm
         self.BCs = BCs
         self.BCf = force_dof[:,0:2]
-        self.f = force_dof[:,[2]]
+        self.fc = force_dof[:,[2]] # controlled
         self.BCu = disp_dof[:,0:2]
-        self.u = disp_dof[:,[2]]
+        self.uc = disp_dof[:,[2]] # controlled
         self.EL = EL
         self.model_dofs = np.zeros((0,2),dtype=int)
 
@@ -68,6 +71,7 @@ class model:
             self.K += Ze_sp.transpose() @ Ke_sp @ Ze_sp   #Global stiffness matrix
 
     def compute_Zf(self):
+        # compute collocation matrix for controlled displacements
         self.row_index = []
         self.col_index = []
 
@@ -80,6 +84,7 @@ class model:
         self.Zf = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.BCf.shape[0],self.model_dofs.shape[0]))
         
     def compute_Zu(self):
+        # compute collocation matrix for controlled displacements
         self.row_ind = []
         self.col_ind = []
 
@@ -92,14 +97,35 @@ class model:
         self.Zu = sp.sparse.csr_matrix((np.ones((len(self.row_ind))),(self.row_ind,self.col_ind)),shape=(self.BCu.shape[0],self.model_dofs.shape[0]))
 
     def compute_displacement(self):
+        # collocation matrix for controlled forces
         self.compute_Zf()
+        # collocation matrix for controlled displacement
         self.compute_Zu()
 
-        self.Kd = self.Zf.transpose() @ self.f
+        if self.Zu.shape[0] == 0 and self.Zf.shape[0] != 0 :
+            # only force controlled dofs
+            self.u = spsolve(self.K, self.Zf.transpose() @ self.fc)
+            self.l = np.zeros((0,1))
+
+        elif self.Zu.shape[0] != 0 and self.Zf.shape[0] == 0 :
+            # only displacement controlled dofs
+            Kiuu = self.Zu @ spsolve(self.K,self.Zu.tranpose())
+            self.l = spsolve(Kiuu,self.uc)
+            self.u = spsolve(self.K,self.Zu.transpose() @ self.l)
+
+        elif self.Zu.shape[0] != 0 and self.Zf.shape[0] != 0 :
+            # both force and displacement controlled dogs
+            Kiuf = self.Zu @ spsolve(self.K,self.Zf.tranpose())
+            Kiuu = self.Zu @ spsolve(self.K,self.Zu.tranpose())
+            self.l = spsolve(Kiuu,self.uc - Kiuf @ self.fc)
+            self.u = spsolve(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)
+
+        '''
+        self.Kd = self.Zf.transpose() @ self.fc
         self.Kinv = np.linalg.inv(self.K)
 
         #displacement because of prescribed displacement
-        self.lamb = np.linalg.lstsq(self.Zu @ self.Kinv @ self.Zu.transpose(), self.u - self.Zu @ self.Kinv @ self.Kd)[0]
+        self.lamb = np.linalg.lstsq(self.Zu @ self.Kinv @ self.Zu.transpose(), self.uc - self.Zu @ self.Kinv @ self.Kd)[0]
         self.du = self.Kinv @ (self.Kd + self.Zu.transpose() @ self.lamb)
         self.du_dof = np.concatenate([self.model_dofs, self.du], axis=1)
 
@@ -112,6 +138,7 @@ class model:
         self.u_dof = np.concatenate([self.model_dofs, u],axis=1)
 
         print(self.u_dof)
+        '''
 
     #def compute_stress(self):
 
@@ -869,3 +896,7 @@ for i in range(0,5):
     # Using np.concatenate
     result_concatenate = np.concatenate((result_append, arr2))
     print("np.concatenate result:", result_concatenate)
+
+#%%
+
+Zu = sp.sparse.csr_matrix((np.ones((5)),(np.ones((5)),np.ones((5)))),shape=(10,10))
