@@ -143,14 +143,14 @@ class model:
     #def compute_stress(self):
 
 
-    def plot(self):
+    def plot(self,uscale):
 
         # compute scaling factors
 
         self.fig, self.ax = plt.subplots()
 
         for myElement in self.myElements:
-            myElement.plot(self.ax, self.u_dof)
+            myElement.plot(self.ax, myElement.Ze @ self.u,uscale)
 
         #plt.plot(NL[self.BCf[0,0],1],NL[self.BCf[0,0],2],'ro')
 
@@ -212,32 +212,19 @@ class beam2D:
         # compact row, compat col or compact diag
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
-    def plot(self,ax,u_dof):
-
-        #scaling factor?
+    def plot(self,ax,ue,uscale):
 
         # Add the polygon patch to the axes
         #ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
         # update position
         pos = self.node_coord
-        for i in range(self.node_ID.shape[0]):
-            for j in range(u_dof.shape[0]):
-                if self.node_ID[i] == u_dof[j,0]:
-                    #print('it gets here')
-                    #print(u_dof)
-                    #print(self.node_coord)
-                    #print(i, j)
-                    if u_dof[j,1] == 1:
-                    #    print('it gets here 1')
-                        pos[i,0] = self.node_coord[i,0] + u_dof[j,2]
-                    elif u_dof[j,1] == 2:
-                    #    print('it gets here 2')
-                        pos[i,1] = self.node_coord[i,1] + u_dof[j,2]
-                    #elif u_dof[j,1] == 3:
-                    #    print('it gets here 3')
-                    #    pos[i,0] = self.node_coord[i,0] - self.L - np.cos(u_dof[j,2])*self.L
-                    #    pos[i,1] = self.node_coord[i,1] + np.sin(u_dof[j,2])*self.L
+
+        pos[0,0] = pos[0,0] + ue[0] * uscale
+        pos[0,1] = pos[0,1] + ue[1] * uscale
+        pos[1,0] = pos[1,0] + ue[3] * uscale
+        pos[1,1] = pos[1,1] + ue[4] * uscale
+
         ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
 class membrane2D:
