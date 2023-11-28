@@ -113,6 +113,9 @@ class model:
 
         print(self.u_dof)
 
+    #def compute_stress(self):
+
+
     def plot(self):
 
         # compute scaling factors
@@ -122,8 +125,10 @@ class model:
         for myElement in self.myElements:
             myElement.plot(self.ax, self.u_dof)
 
+        #plt.plot(NL[self.BCf[0,0],1],NL[self.BCf[0,0],2],'ro')
+
         self.ax.set_xlim(-1, 120)
-        self.ax.set_ylim(-1, 120)
+        self.ax.set_ylim(-5, 20)
         plt.show()
 
 class beam2D:
@@ -132,9 +137,9 @@ class beam2D:
         self.I = params['inertia']
         self.E = params['youngs_modulus']
         self.A = params['area']
-        self.node_ID = node[:,0].astype(int)
+        self.node_ID = node[:,0].astype(np.int32)
+        print(self.node_ID)
         self.node_coord = node[:,1:3]
-
         self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
                              [self.node_ID[0],2],   #dof 2 = bending 
                              [self.node_ID[0],3],   #dof 3 = moment 
@@ -185,17 +190,27 @@ class beam2D:
         #scaling factor?
 
         # Add the polygon patch to the axes
-        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+        #ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
         # update position
         pos = self.node_coord
-        for i in range(self.node_coord.shape[0]):
+        for i in range(self.node_ID.shape[0]):
             for j in range(u_dof.shape[0]):
-                if self.node_coord[i,0] == u_dof[j,0]:
+                if self.node_ID[i] == u_dof[j,0]:
+                    #print('it gets here')
+                    #print(u_dof)
+                    #print(self.node_coord)
+                    #print(i, j)
                     if u_dof[j,1] == 1:
+                    #    print('it gets here 1')
                         pos[i,0] = self.node_coord[i,0] + u_dof[j,2]
                     elif u_dof[j,1] == 2:
+                    #    print('it gets here 2')
                         pos[i,1] = self.node_coord[i,1] + u_dof[j,2]
+                    #elif u_dof[j,1] == 3:
+                    #    print('it gets here 3')
+                    #    pos[i,0] = self.node_coord[i,0] - self.L - np.cos(u_dof[j,2])*self.L
+                    #    pos[i,1] = self.node_coord[i,1] + np.sin(u_dof[j,2])*self.L
         ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
 class membrane2D:
@@ -246,6 +261,7 @@ class membrane2D:
                 Bs[3,[1,3,5,7]] = N(si,tj)[1,:]
 
                 B = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
+                #matlab doet ie: blkdiag(J,J)/Bs
 
                 Ke_b += self.t * B.transpose() @ D[0:2,0:2] @ B * np.linalg.det(J) * wi * wj
 
@@ -514,7 +530,7 @@ I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
 A = b*h         #Area [mm2]
 Ndof = 3        #Number of degrees of freedom
 force = 100
-type = 'shell'
+type = 'beam'
 
 params = {
   'youngs_modulus': E,
@@ -687,16 +703,24 @@ if type == 'shell':
     # Parameters
     kr = 2                           #number of elements in which the shorter side will be divided
     lg = kr*10                       #number of elements in which the longer side will be divided
-    NoN = (p+1)*(m+1)                #number of nodes per beam
-    NoE = p*m                        #number of elements per beam
-    NL = np.zeros((3*NoN, 3),dtype="int")    #extended node list
-    EL = np.zeros((3*NoE, 4),dtype="int")    #extended element list 
+    NoN = (kr+1)*(lg+1)                #number of nodes per beam
+    NoE = kr*lg                        #number of elements per beam
+    NL = np.zeros((NoN, 3),dtype="int")    #extended node list
+    EL = np.zeros((NoE, 4),dtype="int")    #extended element list 
 
     # Boundary conditions
     BCm = []   #Leading nodes
     BCs = []   #Following nodes
-    BCd = np.array([[0,1],[0,2],[2,1],[2,2]]) #Node, dof with blocked displacements
-    pre_forces = np.array([[3,2,-force]])      #Prescribed forces [Node, dof, value of acting force]
+    BCd = np.zeros((2*(kr+1),2))
+    for i in range(0,kr+1):
+        BCd[2*i,0] = i*(lg+1)
+        BCd[2*i+1,0] = i*(lg+1)
+        BCd[2*i,1] = 1
+        BCd[2*i+1,1] = 2
+    print(BCd)
+    print('-------------------------------------------')
+    #BCd = np.array([[0,1],[0,2],[2,1],[2,2]]) #Node, dof with blocked displacements
+    pre_forces = np.array([[(kr+1)*(lg+1)-1,2,-force]])      #Prescribed forces [Node, dof, value of acting force]
     pre_disp = np.array([[0,1,0],[0,2,0]])                              #Prescribed displacement [Node, dof, value of displacement]
 
     for row in range(0,elements.shape[0]):
@@ -733,7 +757,6 @@ if type == 'shell':
                     EL[row*NoE+(i*p)+j, 3] = EL[row*NoE+(i*p)+(j-1), 2]
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
 
-
 elif type == 'beam':
 
     # Node geometry
@@ -741,20 +764,15 @@ elif type == 'beam':
     NL[0,:] = [0, 0.0, 0]
     NL[1,:] = [1, 100.0, 0.0]
 
-
     # Elements
     EL = np.zeros((1,2),dtype="int")
     EL[0,:] = [0,1]
-
-
-    # Plot the initial geometry
-    plt.plot([NL[EL[:,0],1],NL[EL[:,1],1]],[NL[EL[:,0],2],NL[EL[:,1],2]])
 
     # Boundary conditions
     BCd = np.array([[0,1],[0,2]])               #Node, dof with blocked displacements
     BCm = []  #Leading nodes
     BCs = []  #Following nodes
-    pre_forces = np.array([[3,2,-force]])                    #Prescribed forces [Node, dof, value of acting force]
+    pre_forces = np.array([[1,2,-force]])                    #Prescribed forces [Node, dof, value of acting force]
     pre_disp = np.array([[0,1,0]])                          #Prescribed displacement [Node, dof, value of displacement]
 
 
