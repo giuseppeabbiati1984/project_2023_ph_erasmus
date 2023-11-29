@@ -16,7 +16,6 @@ def dense2sparse(A):
 
     return B
 
-#%%
 class model:
 
     def __init__(self,EL,NL,BCd,params,BCm,BCs,force_dof,disp_dof,type):
@@ -29,11 +28,12 @@ class model:
         self.uc = disp_dof[:,[2]] # controlled
         self.EL = EL
         self.model_dofs = np.zeros((0,2),dtype=int)
+        uscale = 1e7
 
         self.get_unique_dof(params,NL,type)
         self.stiffness_matrix()
         self.compute_displacement()
-        self.plot()
+        self.plot(uscale)
         
     # Get unique DOF list
     def get_unique_dof(self,params,NL,type):
@@ -42,9 +42,10 @@ class model:
         for i in range(0,EL.shape[0]):
             if type == 'beam':
                 self.myElements.append(beam2D(params,NL[self.EL[i,:],:]))
-            elif type == 'shell':
-                self.myElements.append(membrane2D(params, NL[self.EL[i,:],:]))
+            elif type == 'solid':
+                self.myElements.append(solid2D(params, NL[self.EL[i,:],:]))
 
+            #Replace following with leading nodes
             for idr, element_row in enumerate(self.myElements[i].dof):
                 for j, row in enumerate(self.BCs):
                     if np.array_equal(element_row,row):
@@ -54,10 +55,11 @@ class model:
 
         self.model_dofs = np.unique(self.model_dofs,axis=0)                                        #Remove double dofs
 
+        #Remove BC dofs
         for i, row in enumerate(self.BCd):
             for j, model_row in enumerate(self.model_dofs):
                 if np.array_equal(row,model_row):
-                    self.model_dofs = np.delete(self.model_dofs, j, axis=0)                   #Remove BC dofs
+                    self.model_dofs = np.delete(self.model_dofs, j, axis=0)
 
     # Compute stiffness matrix
     def stiffness_matrix(self):
@@ -71,91 +73,73 @@ class model:
             self.K += Ze_sp.transpose() @ Ke_sp @ Ze_sp   #Global stiffness matrix
 
     def compute_Zf(self):
-        # compute collocation matrix for controlled displacements
-        self.row_index = []
-        self.col_index = []
+        # compute collocation matrix for controlled forces
+        if len(self.fc) == 0:
+            self.Zf = np.zeros((0,self.model_dofs.shape[0]))
+        else:
+            self.row_index = []
+            self.col_index = []
 
-        for i,fdof in enumerate(self.BCf):
-            for j,mdof in enumerate(self.model_dofs):
-                if np.array_equal(fdof,mdof):
-                    self.row_index.append(i)
-                    self.col_index.append(j)           
+            for i,fdof in enumerate(self.BCf):
+                for j,mdof in enumerate(self.model_dofs):
+                    if np.array_equal(fdof,mdof):
+                        self.row_index.append(i)
+                        self.col_index.append(j)           
 
-        self.Zf = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.BCf.shape[0],self.model_dofs.shape[0]))
-        
+            self.Zf = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.BCf.shape[0],self.model_dofs.shape[0]))     
+
     def compute_Zu(self):
-        # compute collocation matrix for controlled displacements
-        self.row_ind = []
-        self.col_ind = []
+        #Compute collocation matrix for controlled displacements
+        if len(self.uc) == 0:
+            self.Zu = np.zeros((0,self.model_dofs.shape[0]))
+        else:
+            self.row_ind = []
+            self.col_ind = []
 
-        for i,udof in enumerate(self.BCu):
-            for j,mdof in enumerate(self.model_dofs):
-                if np.array_equal(udof,mdof):
-                    self.row_ind.append(i)
-                    self.col_ind.append(j)
+            for i,udof in enumerate(self.BCu):
+                for j,mdof in enumerate(self.model_dofs):
+                    if np.array_equal(udof,mdof):
+                        self.row_ind.append(i)
+                        self.col_ind.append(j)
 
-        self.Zu = sp.sparse.csr_matrix((np.ones((len(self.row_ind))),(self.row_ind,self.col_ind)),shape=(self.BCu.shape[0],self.model_dofs.shape[0]))
+            self.Zu = sp.sparse.csr_matrix((np.ones((len(self.row_ind))),(self.row_ind,self.col_ind)),shape=(self.BCu.shape[0],self.model_dofs.shape[0]))
 
     def compute_displacement(self):
-        # collocation matrix for controlled forces
-        self.compute_Zf()
-        # collocation matrix for controlled displacement
-        self.compute_Zu()
+        self.compute_Zf()       #collocation matrix for controlled forces
+        self.compute_Zu()       #collocation matrix for controlled displacement
 
+        #Only force controlled dofs
         if self.Zu.shape[0] == 0 and self.Zf.shape[0] != 0 :
-            # only force controlled dofs
-            self.u = spsolve(self.K, self.Zf.transpose() @ self.fc)
+            self.u = np.linalg.lstsq(self.K, self.Zf.transpose() @ self.fc)[0]
             self.l = np.zeros((0,1))
 
+            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
+
+        #Only displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] == 0 :
-            # only displacement controlled dofs
-            Kiuu = self.Zu @ spsolve(self.K,self.Zu.tranpose())
+            Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc)
-            self.u = spsolve(self.K,self.Zu.transpose() @ self.l)
+            self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l)[0]
+            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
 
+        #Both force and displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] != 0 :
-            # both force and displacement controlled dogs
-            Kiuf = self.Zu @ spsolve(self.K,self.Zf.tranpose())
-            Kiuu = self.Zu @ spsolve(self.K,self.Zu.tranpose())
+            Kiuf = self.Zu @ spsolve(self.K,self.Zf.transpose())
+            Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc - Kiuf @ self.fc)
-            self.u = spsolve(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)
+            #self.u = spsolve(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc) becomes a list and is not possible to calculate with later
+            self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)[0]
 
-        '''
-        self.Kd = self.Zf.transpose() @ self.fc
-        self.Kinv = np.linalg.inv(self.K)
-
-        #displacement because of prescribed displacement
-        self.lamb = np.linalg.lstsq(self.Zu @ self.Kinv @ self.Zu.transpose(), self.uc - self.Zu @ self.Kinv @ self.Kd)[0]
-        self.du = self.Kinv @ (self.Kd + self.Zu.transpose() @ self.lamb)
-        self.du_dof = np.concatenate([self.model_dofs, self.du], axis=1)
-
-        #displacement because of prescribed force
-        self.df = np.linalg.lstsq(self.K, self.Kd)[0]
-        self.df_dof = np.concatenate([self.model_dofs, self.df], axis=1)
-
-        #u = np.zeros(self.model_dofs.shape[0])
-        u = self.df + self.du
-        self.u_dof = np.concatenate([self.model_dofs, u],axis=1)
-
-        print(self.u_dof)
-        '''
-
-    #def compute_stress(self):
-
+            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
 
     def plot(self,uscale):
-
-        # compute scaling factors
-
         self.fig, self.ax = plt.subplots()
 
         for myElement in self.myElements:
-            myElement.plot(self.ax, myElement.Ze @ self.u,uscale)
-
-        #plt.plot(NL[self.BCf[0,0],1],NL[self.BCf[0,0],2],'ro')
+            myElement.plot(self.ax, myElement.Ze @ self.u, uscale)
 
         self.ax.set_xlim(-1, 120)
-        self.ax.set_ylim(-5, 20)
+        self.ax.set_ylim(-20, 20)
         plt.show()
 
 class beam2D:
@@ -165,14 +149,13 @@ class beam2D:
         self.E = params['youngs_modulus']
         self.A = params['area']
         self.node_ID = node[:,0].astype(np.int32)
-        print(self.node_ID)
         self.node_coord = node[:,1:3]
-        self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
-                             [self.node_ID[0],2],   #dof 2 = bending 
-                             [self.node_ID[0],3],   #dof 3 = moment 
+        self.dof = np.array([[self.node_ID[0],0],   #dof 0 = axial load
+                             [self.node_ID[0],1],   #dof 1 = bending 
+                             [self.node_ID[0],2],   #dof 2 = moment 
+                             [self.node_ID[1],0],
                              [self.node_ID[1],1],
-                             [self.node_ID[1],2],
-                             [self.node_ID[1],3]],dtype="int")
+                             [self.node_ID[1],2]],dtype="int")
         self.L = np.linalg.norm(self.node_coord[1,:] - self.node_coord[0,:])
         self.s = (self.node_coord[[1],:] - self.node_coord[[0],:])/self.L
         t = np.array([[-self.s[0,1]],[self.s[0,0]]])
@@ -209,17 +192,17 @@ class beam2D:
                     self.row_index.append(i)
                     self.col_index.append(j)
 
-        # compact row, compat col or compact diag
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
+        print(self.Ze)
+        print('------------------------------')
 
     def plot(self,ax,ue,uscale):
 
         # Add the polygon patch to the axes
-        #ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
-        # update position
+        # Update position
         pos = self.node_coord
-
         pos[0,0] = pos[0,0] + ue[0] * uscale
         pos[0,1] = pos[0,1] + ue[1] * uscale
         pos[1,0] = pos[1,0] + ue[3] * uscale
@@ -227,41 +210,42 @@ class beam2D:
 
         ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
-class membrane2D:
+class solid2D:
 
     def __init__(self, params, node):
         self.E = params['youngs_modulus']
         self.nu = params['poisson']        
         self.t = params['thickness']
-        self.NPE = 4                        #nodes per element
-        self.PD = 2                         #problem dimension
         self.node_ID = node[:,0].astype(int)
         self.node_coord = node[:,1:3]
-        self.dof = np.array([[self.node_ID[0],1],   #dof 1 = axial load
-                             [self.node_ID[0],2],   #dof 2 = bending 
+        self.dof = np.array([[self.node_ID[0],0],   #dof 0 = axial load
+                             [self.node_ID[0],1],   #dof 1 = bending 
+                             [self.node_ID[1],0],
                              [self.node_ID[1],1],
-                             [self.node_ID[1],2],
+                             [self.node_ID[2],0],   
                              [self.node_ID[2],1],   
-                             [self.node_ID[2],2],   
-                             [self.node_ID[3],1],
-                             [self.node_ID[3],2]],dtype="int")
+                             [self.node_ID[3],0],
+                             [self.node_ID[3],1]],dtype="int")
     
         self.compute_K() 
 
 
     def compute_K(self):
         self.Ke = np.zeros((8,8))                     #element stiffness
-        Ke_b = np.zeros((8,8)) 
+        Ke_b = np.zeros((8,8))
+
+        #Derivative of shape functions 
         N = lambda s, t : 1/4* np.array([[-(1-t),  (1-t), (1+t), -(1+t)],
                                          [-(1-s), -(1+s), (1+s),  (1-s)]])
+        # ???
         D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
                       [self.nu*self.E/(1-self.nu**2),  self.E/(1-self.nu**2),          0],
                       [0,                              0,                              self.E/(2*(1+self.nu))]])   
 
-        # quadrature rule (bending)
+        #Quadrature rule (bending)
         r,w = self.GaussPoints(2)
 
-        # numerical ingration
+        #Numerical ingration
         for si,wi in zip(r,w):
             for tj,wj in zip(r,w):
 
@@ -274,15 +258,15 @@ class membrane2D:
                 Bs[2,[1,3,5,7]] = N(si,tj)[0,:]
                 Bs[3,[1,3,5,7]] = N(si,tj)[1,:]
 
+                # ???
                 B = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
-                #matlab doet ie: blkdiag(J,J)/Bs
 
                 Ke_b += self.t * B.transpose() @ D[0:2,0:2] @ B * np.linalg.det(J) * wi * wj
 
-        # quadrature rule (shear)
+        #Quadrature rule (shear)
         r,w = self.GaussPoints(1)
 
-        # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
+        #Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
         Jsh = N(r,r) @ self.node_coord
 
         Bssh = np.zeros((4,8))
@@ -300,8 +284,8 @@ class membrane2D:
     def GaussPoints(self,order):
         # quadrature rules in 1D (2D rules are obtained by combining 1Ds as in a grid)
         if order == 1:
-            r = 0.0 #np.array([0.0])
-            w = 2.0 #np.array([2.0])
+            r = 0.0
+            w = 2.0 
         elif order == 2:
             r = np.array([-1/math.sqrt(3),+1/math.sqrt(3)])
             w = np.array([1.0,1.0])
@@ -318,28 +302,25 @@ class membrane2D:
                     self.row_index.append(i)
                     self.col_index.append(j)
 
-        # compact row, compat col or compact diag
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
-
-    def plot(self,ax,u_dof):
-
-        #scaling factor?
+    def plot(self,ax,ue,uscale):
 
         # Add the polygon patch to the axes
-        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+        #ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
-        # update position
+        # Update position
         pos = self.node_coord
-        for i in range(self.node_coord.shape[0]):
-            for j in range(u_dof.shape[0]):
-                if self.node_coord[i,0] == u_dof[j,0]:
-                    if u_dof[j,1] == 1:
-                        pos[i,0] = self.node_coord[i,0] + u_dof[j,2]
-                    elif u_dof[j,1] == 2:
-                        pos[i,1] = self.node_coord[i,1] + u_dof[j,2]
-        ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
+        pos[0,0] = pos[0,0] + ue[0] * uscale
+        pos[0,1] = pos[0,1] + ue[1] * uscale
+        pos[1,0] = pos[1,0] + ue[2] * uscale
+        pos[1,1] = pos[1,1] + ue[3] * uscale
+        pos[2,0] = pos[2,0] + ue[4] * uscale
+        pos[2,1] = pos[2,1] + ue[5] * uscale
+        pos[3,0] = pos[3,0] + ue[6] * uscale
+        pos[3,1] = pos[3,1] + ue[7] * uscale
 
+        ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
 
 #%% Test setup
 
@@ -385,7 +366,7 @@ phi = VT.T
 phi = phi[:, -3:]
 
 sca = 1.0
-mode = 2
+mode = 1
 plt.plot(node_test[:,1],node_test[:,2],'ob')
 plt.plot(node_test[:,1]+sca*phi[0::2,mode],node_test[:,2]+sca*phi[1::2,mode],'xr')
 
@@ -691,7 +672,7 @@ I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
 A = b*h         #Area [mm2]
 Ndof = 3        #Number of degrees of freedom
 force = 100
-type = 'beam'
+type = 'beam'  #beam or solid
 
 params = {
   'youngs_modulus': E,
@@ -701,7 +682,7 @@ params = {
   'thickness' : t}
 
 
-if type == 'shell':
+if type == 'solid':
 
     # Node geometry
     nodes = np.zeros((4,3))
@@ -717,8 +698,8 @@ if type == 'shell':
     # Parameters
     kr = 2                           #number of elements in which the shorter side will be divided
     lg = kr*10                       #number of elements in which the longer side will be divided
-    NoN = (kr+1)*(lg+1)                #number of nodes per beam
-    NoE = kr*lg                        #number of elements per beam
+    NoN = (kr+1)*(lg+1)              #number of nodes per beam
+    NoE = kr*lg                      #number of elements per beam
     NL = np.zeros((NoN, 3),dtype="int")    #extended node list
     EL = np.zeros((NoE, 4),dtype="int")    #extended element list 
 
@@ -729,13 +710,10 @@ if type == 'shell':
     for i in range(0,kr+1):
         BCd[2*i,0] = i*(lg+1)
         BCd[2*i+1,0] = i*(lg+1)
-        BCd[2*i,1] = 1
-        BCd[2*i+1,1] = 2
-    print(BCd)
-    print('-------------------------------------------')
-    #BCd = np.array([[0,1],[0,2],[2,1],[2,2]]) #Node, dof with blocked displacements
-    pre_forces = np.array([[(kr+1)*(lg+1)-1,2,-force]])      #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.array([[0,1,0],[0,2,0]])                              #Prescribed displacement [Node, dof, value of displacement]
+        BCd[2*i,1] = 0
+        BCd[2*i+1,1] = 1
+    pre_forces = np.array([[(kr+1)*(lg+1)-1,1,-force]])      #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.zeros((0,3)) #np.array([[0,0,0],[0,1,0]])                   #Prescribed displacement [Node, dof, value of displacement]
 
     for row in range(0,elements.shape[0]):
         ## Nodes
@@ -772,26 +750,34 @@ if type == 'shell':
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
 
 elif type == 'beam':
+    NoE = 2
+    L = 100
 
     # Node geometry
-    NL = np.zeros((2,3),dtype="int")
-    NL[0,:] = [0, 0.0, 0]
-    NL[1,:] = [1, 100.0, 0.0]
+    NL = np.zeros((NoE+1,3),dtype="int")
+    Le = L/NoE
+    for n in range(1,NoE+1):
+        NL[0,:] = [0, 0.0, 0]
+        NL[n,:] = [n, n*Le, 0]
 
     # Elements
-    EL = np.zeros((1,2),dtype="int")
-    EL[0,:] = [0,1]
+    EL = np.zeros((NoE,2),dtype="int")
+    for n in range(0,NoE):
+        EL[n,:] = [n,n+1]
 
     # Boundary conditions
-    BCd = np.array([[0,1],[0,2]])               #Node, dof with blocked displacements
+    BCd = np.array([[0,0],[0,1],[0,2]])               #Node, dof with blocked displacements
     BCm = []  #Leading nodes
     BCs = []  #Following nodes
-    pre_forces = np.array([[1,2,-force]])                    #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.array([[0,1,0]])                          #Prescribed displacement [Node, dof, value of displacement]
+    pre_forces = np.array([[1,1,-force]])             #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.zeros((0,3))                        #Prescribed displacement [Node, dof, value of displacement]
 
 
 ## Main code
 myModel = model(EL,NL,BCd,params,BCm,BCs,pre_forces,pre_disp,type)
+
+analytical_displacement = force*100**3/(3*E*I)
+analytical_rotation = force*100**2/(2*E*I)
 
 # %% Validating the dense2sparse function 
 
