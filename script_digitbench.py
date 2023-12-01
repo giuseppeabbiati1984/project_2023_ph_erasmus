@@ -43,7 +43,7 @@ class model:
             if type == 'beam':
                 self.myElements.append(beam2D(params,NL[self.EL[i,:],:]))
             elif type == 'solid':
-                self.myElements.append(solid2D(params, NL[self.EL[i,:],:]))
+                self.myElements.append(solid2D(params,NL[self.EL[i,:],:]))
 
             #Replace following with leading nodes
             for idr, element_row in enumerate(self.myElements[i].dof):
@@ -66,6 +66,7 @@ class model:
         self.K = np.zeros((len(self.model_dofs),len(self.model_dofs)))
 
         for i in range(0,self.EL.shape[0]):
+            #print(self.model_dofs)
             self.myElements[i].compute_Z(self.model_dofs)
             Ze_sp = self.myElements[i].Ze
             Ke_sp = self.myElements[i].Ke
@@ -158,8 +159,7 @@ class beam2D:
                              [self.node_ID[1],2]],dtype="int")
         self.L = np.linalg.norm(self.node_coord[1,:] - self.node_coord[0,:])
         self.s = (self.node_coord[[1],:] - self.node_coord[[0],:])/self.L
-        t = np.array([[-self.s[0,1]],[self.s[0,0]]])
-        self.t = np.transpose(t)
+        self.t = np.array([[-self.s[0,1], self.s[0,0]]])
 
         # Rotation matrix
         one = [[1]]
@@ -172,15 +172,14 @@ class beam2D:
     def compute_K(self):
         # Local element stiffness matrix
         self.Kl = np.array([[self.E*self.A/self.L, 0,0,-self.E*self.A/self.L,0,0],
-                            [0, 12*self.E*self.I/self.L**3, -6*self.E*self.I/self.L**2, 0, -12*self.E*self.I/self.L**3, -6*self.E*self.I/self.L**2],
-                            [0, -6*self.E*self.I/self.L**2,  4*self.E*self.I/self.L,    0,  6*self.E*self.I/self.L**2,   2*self.E*self.I/self.L   ],
+                            [0, 12*self.E*self.I/self.L**3, 6*self.E*self.I/self.L**2, 0, -12*self.E*self.I/self.L**3, 6*self.E*self.I/self.L**2],
+                            [0, 6*self.E*self.I/self.L**2,  4*self.E*self.I/self.L,    0, -6*self.E*self.I/self.L**2,   2*self.E*self.I/self.L   ],
                             [-self.E*self.A/self.L, 0,0,self.E*self.A/self.L,0,0],
-                            [0, -12*self.E*self.I/self.L**3, 6*self.E*self.I/self.L**2, 0,  12*self.E*self.I/self.L**3,  6*self.E*self.I/self.L**2],
-                            [0, -6*self.E*self.I/self.L**2,  2*self.E*self.I/self.L,    0,  6*self.E*self.I/self.L**2,   4*self.E*self.I/self.L    ]],dtype="float")
+                            [0, -12*self.E*self.I/self.L**3, -6*self.E*self.I/self.L**2, 0,  12*self.E*self.I/self.L**3,  -6*self.E*self.I/self.L**2],
+                            [0, 6*self.E*self.I/self.L**2,  2*self.E*self.I/self.L,      0,  -6*self.E*self.I/self.L**2,   4*self.E*self.I/self.L    ]],dtype="float")
 
         # Global element stiffness matrix
-        self.Ke = dense2sparse(np.linalg.multi_dot([np.transpose(self.R),self.Kl,self.R]))
-
+        self.Ke = dense2sparse(self.R.transpose() @ self.Kl @ self.R)
 
     def compute_Z(self,modeldofs):
         self.row_index = []
@@ -193,8 +192,11 @@ class beam2D:
                     self.col_index.append(j)
 
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
-        print(self.Ze)
-        print('------------------------------')
+        #print('==============================')
+        #print(self.dof)
+        #print('------------------------------')
+        #print(self.Ze)
+        #print('------------------------------')
 
     def plot(self,ax,ue,uscale):
 
@@ -307,7 +309,7 @@ class solid2D:
     def plot(self,ax,ue,uscale):
 
         # Add the polygon patch to the axes
-        #ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
+        ax.add_patch(patches.Polygon(self.node_coord[:,0:2], color='blue', alpha=0.5))
 
         # Update position
         pos = self.node_coord
@@ -750,7 +752,7 @@ if type == 'solid':
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
 
 elif type == 'beam':
-    NoE = 2
+    NoE = 1
     L = 100
 
     # Node geometry
