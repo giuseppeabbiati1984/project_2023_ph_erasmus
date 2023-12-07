@@ -49,3 +49,4 @@ J_val2,Jq_val2,Jchi_val2 = lambda_J_chk(chi_x_val,chi_y_val,x1_val,x2_val,y1_val
 
 print(J_val1)
 print(J_val2)
+# %%
