@@ -1,6 +1,5 @@
 import numpy as np
 import scipy as sp
-import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from scipy.sparse.linalg import spsolve
@@ -27,11 +26,8 @@ class model:
         self.EL = etop
         self.model_dofs = np.zeros((0,2),dtype=int)
         
-
         self.get_unique_dof(params,ncoord,type)
         self.stiffness_matrix()
-        #self.compute_displacement()
-        #self.plot(uscale)
         
     # Get unique DOF list
     def get_unique_dof(self,params,ncoord,type):
@@ -64,7 +60,6 @@ class model:
         self.K = np.zeros((len(self.model_dofs),len(self.model_dofs)))
 
         for i in range(0,self.EL.shape[0]):
-            #print(self.model_dofs)
             self.myElements[i].compute_Z(self.model_dofs)
             Ze_sp = self.myElements[i].Ze
             Ke_sp = self.myElements[i].Ke
@@ -109,36 +104,30 @@ class model:
 
         #Only force controlled dofs
         if self.Zu.shape[0] == 0 and self.Zf.shape[0] != 0 :
-            self.u = np.linalg.lstsq(self.K, self.Zf.transpose() @ self.fc)[0]
+            self.u = spsolve(self.K, self.Zf.transpose() @ self.fc)
             self.l = np.zeros((0,1))
-
-            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
 
         #Only displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] == 0 :
             Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc)
-            self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l)[0]
-            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
+            self.u = spsolve(self.K,self.Zu.transpose() @ self.l)
 
         #Both force and displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] != 0 :
             Kiuf = self.Zu @ spsolve(self.K,self.Zf.transpose())
             Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc - Kiuf @ self.fc)
-            #self.u = spsolve(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc) becomes a list and is not possible to calculate with later
-            self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)[0]
+            self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)[0][:,0]
 
-            u_dof = np.concatenate([self.model_dofs, self.u], axis=1)
-
-    def plot(self,uscale):
+    def plot(self,uscale,x1,x2,y1,y2):
         self.fig, self.ax = plt.subplots()
 
         for myElement in self.myElements:
             myElement.plot(self.ax, myElement.Ze @ self.u, uscale)
 
-        self.ax.set_xlim(-1, 120)
-        self.ax.set_ylim(-20, 20)
+        self.ax.set_xlim(x1, x2)
+        self.ax.set_ylim(y1, y2)
         plt.show()
 
 class beam2D:
@@ -190,11 +179,6 @@ class beam2D:
                     self.col_index.append(j)
 
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
-        #print('==============================')
-        #print(self.dof)
-        #print('------------------------------')
-        #print(self.Ze)
-        #print('------------------------------')
 
     def plot(self,ax,ue,uscale):
 
@@ -261,7 +245,7 @@ class solid2D:
                 # ???
                 B = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
 
-                Ke_b += self.t * B.transpose() @ D[0:2,0:2] @ B * np.linalg.det(J) * wi * wj
+                Ke_b += self.t * B.transpose() @ D[0:2,0:2] @ B * np.linalg.det(J) * wi * wj 
 
         #Quadrature rule (shear)
         r,w = self.GaussPoints(1)
@@ -277,7 +261,7 @@ class solid2D:
 
         Bsh = np.array([[0,1,1,0]]) @ sp.linalg.block_diag(np.linalg.inv(Jsh),np.linalg.inv(Jsh)) @ Bssh
 
-        Ke_sh = self.t * Bsh.transpose() * D[2,2]  * Bsh * np.linalg.det(Jsh) * w * w
+        Ke_sh = self.t * Bsh.transpose() * D[2,2]  * Bsh * np.linalg.det(Jsh) * w * w 
 
         self.Ke = Ke_b + Ke_sh
 
@@ -287,7 +271,7 @@ class solid2D:
             r = 0.0
             w = 2.0 
         elif order == 2:
-            r = np.array([-1/math.sqrt(3),+1/math.sqrt(3)])
+            r = np.array([-1/np.sqrt(3),1/np.sqrt(3)])
             w = np.array([1.0,1.0])
 
         return r,w
@@ -321,3 +305,17 @@ class solid2D:
         pos[3,1] = pos[3,1] + ue[7] * uscale
 
         ax.add_patch(patches.Polygon(pos[:,0:2], color='red', alpha=0.5))
+
+#class coupling:
+
+   # def __init__(self,u):
+   #     l1 = [665.3, 0]
+   #     l2 = [0, 584]
+   #     x1 = u[0]
+   #     x2 = u[1]
+
+   # def get_derivative(self):
+
+
+
+

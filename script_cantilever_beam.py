@@ -1,8 +1,6 @@
-#%%
-
-from module_python_fem import *
-
 #%% Cantilever beam
+from module_python_fem import *
+from module_windturbine import *
 
 ## Initialization
 # Parameters
@@ -13,9 +11,8 @@ b = 10          #Width of beam [mm]
 t = 0.4         #Thickness of beam [mm]
 I = 1/12 * (b*h**3 - (b-2*t)*(h-2*t)**3)     #Second moment of inertia [mm4]
 A = b*h         #Area [mm2]
-#Ndof = 3        #Number of degrees of freedom
 force = 100
-type = 'beam'  #beam or solid
+type = 'solid'  #beam or solid
 
 params = {
   'youngs_modulus': E,
@@ -27,18 +24,18 @@ params = {
 if type == 'solid':
 
     # Node geometry
-    nodes = np.zeros((4,3))
+    nodes = np.zeros((4,3),dtype="float")
     nodes[0,:] = [0, 0.0, 0.0]
     nodes[1,:] = [1, 100, 0]
     nodes[2,:] = [2, 0, 10]
     nodes[3,:] = [3, 100, 10]
 
     # Elements
-    elements = np.zeros((1,4),dtype=int)
+    elements = np.zeros((1,4),dtype="int")
     elements[0,:] = [0, 1, 3, 2]
 
     # Parameters
-    kr = 4                           #number of elements in which the shorter side will be divided
+    kr = 1                           #number of elements in which the shorter side will be divided
     lg = kr*10                       #number of elements in which the longer side will be divided
     NoN = (kr+1)*(lg+1)              #number of nodes per beam
     NoE = kr*lg                      #number of elements per beam
@@ -55,8 +52,8 @@ if type == 'solid':
         BCd[2*i,1] = 0
         BCd[2*i+1,1] = 1
         
-    BCf = np.array([[(kr+1)*(lg+1)-1,1,-force]])      #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.zeros((0,3)) #np.array([[0,0,0],[0,1,0]])                   #Prescribed displacement [Node, dof, value of displacement]
+    BCf =  np.array([[(kr+1)*(lg+1)-1,1,-force]])      #Prescribed forces [Node, dof, value of acting force]
+    pre_disp = np.zeros((0,3)) #np.array([[(kr+1)*(lg+1)-1,1,-10**(-6)]])  #np.zeros((0,3))                    #Prescribed displacement [Node, dof, value of displacement]
 
     for row in range(0,elements.shape[0]):
         ## Nodes
@@ -93,7 +90,7 @@ if type == 'solid':
                     EL[row*NoE+(i*p)+j, 2] = EL[row*NoE+(i*p)+j, 3] + 1
 
 elif type == 'beam':
-    NoE = 50
+    NoE = 1
     L = 100.0
 
     # Node geometry
@@ -113,109 +110,63 @@ elif type == 'beam':
     BCd = np.array([[0,0],[0,1],[0,2]])               #Node, dof with blocked displacements
     BCm = []  #Leading nodes
     BCs = []  #Following nodes
-    BCf = np.array([[NoE,1,-force]])             #Prescribed forces [Node, dof, value of acting force]
-    pre_disp = np.zeros((0,3))                        #Prescribed displacement [Node, dof, value of displacement]
+    BCf = np.array([[NoE,0,-force]])             #Prescribed forces [Node, dof, value of acting force]
+    #displacement = eval_rhs(ti_val,xi_val,mb_val,kb_val,zb_val,lb_val,mt_val,kt_val,zt_val,Ig_val,dg_val,fw_val,g_val,myModel.l)
+    pre_disp = np.zeros((0,3)) #np.array([[NoE,1,-10**(-6)]])                         #Prescribed displacement [Node, dof, value of displacement]
 
 
 ## Main code
 myModel = model(EL,NL,BCd,params,BCm,BCs,BCf,pre_disp,type)
+
+x1 = -1
+x2 = 120
+y1 = -120
+y2 = 20
 myModel.compute_displacement()
-myModel.plot(1e7)
+myModel.plot(1e7,x1,x2,y1,y2)
 
 analytical_displacement = force*100**3/(3*E*I)
 analytical_rotation = force*100**2/(2*E*I)
 
-# %% Validating the dense2sparse function 
-
-test_matrix1 = np.zeros((6,6))
-test_matrix1[0,0] = 2
-test_matrix1[0,3] = 1
-test_matrix1[1,2] = 1
-test_matrix1[2,3] = 2
-test_matrix1[3,0] = 1
-test_matrix1[3,4] = 3
-test_matrix1[4,1] = 2
-test_matrix1[4,5] = 2
-test_matrix1[5,2] = 1
-test_matrix1[5,4] = 1
-
-test_matrix2 = np.zeros((6,6))
-test_matrix2[0,0] = 2
-test_matrix2[0,4] = 1
-test_matrix2[1,3] = 1
-test_matrix2[2,5] = 2
-test_matrix2[3,1] = 1
-test_matrix2[3,3] = 3
-test_matrix2[4,0] = 2
-test_matrix2[4,4] = 2
-test_matrix2[5,2] = 1
-test_matrix2[5,5] = 1
-
-print(test_matrix1)
-print('=====')
-print(test_matrix2)
-
-test_sparse1 = dense2sparse(test_matrix1)
-tets_sparse2 = dense2sparse(test_matrix2)
-
-test_trans = test_sparse1.transpose()
-
-test = test_sparse1 + tets_sparse2
-
-print('=============================================')
-print(test)
-print('-----')
-print(test_trans)
+analytical_displacement_solid = force*100.0**3/(3.0*E*(1/12)*0.4*10.0**3)
 
 #%%
 
+u = myModel.u[-2:]
+l1 = [665.3, 0] #distance between actuator connection to frame and connection to cantilever beam in original state
+l2 = [0, 584]   #distance between actuator connection to frame and connection to cantilever beam in original state
+#q1 = u[1]       #blade tip displacement in x direction
+#q2 = u[0]       #blade tip displacement in y direction
 
-test_matrix1 = np.zeros((6,6))
-test_matrix1[0,0] = 2
-test_matrix1[0,3] = 1
-test_matrix1[1,2] = 1
-test_matrix1[2,3] = 2
-test_matrix1[3,0] = 1
-test_matrix1[3,4] = 3
-test_matrix1[4,1] = 2
-test_matrix1[4,5] = 2
-test_matrix1[5,2] = 1
-test_matrix1[5,4] = 1
+from sympy import symbols
+from sympy import *
 
-total_matrix = np.zeros((6,6))
-total_sp = np.zeros((6,6))
+q1 = symbols('q1')
+q2 = symbols('q2')
+#x1 = symbol('x1')
+#x2 = symbol('x2')
+x1 = NL[-1,1]+q1 #blade tip x-position after displacement
+x2 = NL[-1,1]+q2 #blade tip y-position after displacement
 
-for i in range(len(test_matrix1)):
-    test_matrix1[i,1] = i 
-    test_matrix1[4,i] = 1
 
-    test_sp = dense2sparse(test_matrix1)
+#update l
+#l1 = l1 + x1
+#l1 = np.linalg.norm(l1)
+#l2 = l2 + x2
+#l2 = np.linalg.norm(l2)
+#l = [l1, l2]
 
-    total_matrix += test_matrix1
-    total_sp += test_sp
+#derivatives
+#l1dot = l1.diff(x1)*x1.diff(t) + l1.diff(x2)*x2.diff(t)
+#l2dot = l2.diff(x1)*x1.diff(t) + l2.diff(x2)*x2.diff(t)
+#ldot = [l1dot, l2dot]
 
-print(total_matrix)
-print('------------')
-print(total_sp)
 
-#%% difference append and concatenate
+q = np.array([[q1, q2]])
+x = np.array([[x1, x2]])
 
-import numpy as np
+J = np.array([[x1.diff(q1), x1.diff(q2)],[x2.diff(q1), x2.diff(q2)]])
 
-result_append = np.zeros((0,3))
-for i in range(0,5):
-    # Example arrays
-    #arr1 = np.array([1, 2*i, 3])
-    arr2 = np.array([4*i, 5, 6+i])
+tau = spsolve(J.transpose(),myModel.l)
 
-    # Using np.append
-    result_append = np.append(result_append, arr2)
-    print("np.append result:", result_append)
 
-    # Using np.concatenate
-    result_concatenate = np.concatenate((result_append, arr2))
-    print("np.concatenate result:", result_concatenate)
-
-#%%
-
-Zu = sp.sparse.csr_matrix((np.ones((5)),(np.ones((5)),np.ones((5)))),shape=(10,10))
