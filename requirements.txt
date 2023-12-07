@@ -8,3 +8,4 @@ pyserial
 pika
 pyhocon
 influxdb-client
+dill
