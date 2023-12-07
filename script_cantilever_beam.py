@@ -131,6 +131,9 @@ analytical_rotation = force*100**2/(2*E*I)
 analytical_displacement_solid = force*100.0**3/(3.0*E*(1/12)*0.4*10.0**3)
 
 #%%
+#should use sympy, because numpy is for numerical purposes and we need to stick with symoblic for now
+import sympy as sm
+from sympy import symbols
 
 u = myModel.u[-2:]
 l1 = [665.3, 0] #distance between actuator connection to frame and connection to cantilever beam in original state
@@ -138,8 +141,7 @@ l2 = [0, 584]   #distance between actuator connection to frame and connection to
 #q1 = u[1]       #blade tip displacement in x direction
 #q2 = u[0]       #blade tip displacement in y direction
 
-from sympy import symbols
-from sympy import *
+
 
 q1 = symbols('q1')
 q2 = symbols('q2')
@@ -162,11 +164,13 @@ x2 = NL[-1,1]+q2 #blade tip y-position after displacement
 #ldot = [l1dot, l2dot]
 
 
-q = np.array([[q1, q2]])
-x = np.array([[x1, x2]])
+q = sm.Matrix([q1, q2])
+x = sm.Matrix([x1, x2])
 
-J = np.array([[x1.diff(q1), x1.diff(q2)],[x2.diff(q1), x2.diff(q2)]])
+Jq = q.jacobian(q)
 
-tau = spsolve(J.transpose(),myModel.l)
+#J = np.array([[x1.diff(q1), x1.diff(q2)],[x2.diff(q1), x2.diff(q2)]])
+
+#tau = spsolve(J.transpose(),myModel.l)
 
 
