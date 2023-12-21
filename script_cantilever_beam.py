@@ -142,3 +142,24 @@ myModel.plot_stresses(x1,x2,y1,y2,direction)
 
 #analytical_displacement_solid = force*100.0**3/(3.0*E*(1/12)*0.4*10.0**3)
 
+#%%
+
+direction = 0
+stress_value = myModel.myElements[0].stress[direction]
+
+myModel.myElements[0].plot_stress()
+
+
+#%%
+
+import matplotlib.pyplot as plt
+fig,ax = plt.subplots()
+
+stress_min = -50.0
+stress_max =  50.0
+
+stress = 35.0
+stress_norm = np.interp(stress,np.array([stress_min,stress_max]),np.array([0.0,1.0]))
+
+ax.add_patch(patches.Polygon([[-1.0,-1.0],[1.0,-1.0],[1.0,1.0],[-1.0,1.0]], closed=True, edgecolor='black', facecolor=plt.cm.viridis(stress_norm)))
+# %%
