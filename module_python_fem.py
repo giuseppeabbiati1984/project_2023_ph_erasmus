@@ -177,7 +177,6 @@ class model:
         self.fig1, self.ax1 = plt.subplots()
 
         stress_values = [element.stress[direction] for element in self.myElements]
-        #print(stress_values)
         max_value = max(stress_values)
         min_value = min(stress_values)
 
@@ -321,6 +320,8 @@ class solid2D:
 
                 # ???
                 self.Bb = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
+                #print(self.Bb)
+                #print('---------------------------')
 
                 Ke_b += self.t * self.Bb.transpose() @ self.D[0:2,0:2] @ self.Bb * np.linalg.det(J) * wi * wj 
 
@@ -367,6 +368,8 @@ class solid2D:
 
     def calculate_stress(self,u,n):
         B = np.concatenate((self.Bb,self.Bsh),axis=0)
+        #print(self.Bb)
+        #print('============================')
         strain = B @ u.transpose()
         self.stress = self.D @ strain
     
