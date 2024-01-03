@@ -1,11 +1,9 @@
 import numpy as np
 import scipy as sp
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import matplotlib.tri as tri
+import dill
 from scipy.sparse.linalg import spsolve
-from matplotlib.collections import LineCollection
 
 # Function for conversion of dense to sparse matrix
 def dense2sparse(A):
@@ -23,25 +21,14 @@ class model:
         self.BCm = BCm
         self.BCs = BCs
         self.BCf = force_dof[:,0:2]
-        self.fc = force_dof[:,[2]] # controlled
+        self.fc = force_dof[:,[2]]  #controlled
         self.BCu = disp_dof[:,0:2]
-        self.uc = disp_dof[:,[2]] # controlled
+        self.uc = disp_dof[:,[2]]   #controlled
         self.EL = etop
         self.model_dofs = np.zeros((0,2),dtype=int)
         
         self.get_unique_dof(params,ncoord,type)
         self.stiffness_matrix()
-
-        #x1 = -1
-        #x2 = 120
-        #y1 = -120
-        #y2 = 20
-        #direction = 0 #0=sigma_xx, 1=sigma_yy, 2=tau_xy
-        #self.compute_displacement()
-        #self.compute_stress()
-
-        #self.plot(1e7,x1,x2,y1,y2)
-        #self.plot_stresses(x1,x2,y1,y2,direction)
         
     # Get unique DOF list
     def get_unique_dof(self,params,ncoord,type):
@@ -120,14 +107,12 @@ class model:
         if self.Zu.shape[0] == 0 and self.Zf.shape[0] != 0 :
             self.u = spsolve(self.K, self.Zf.transpose() @ self.fc)
             self.l = np.zeros((0,1))
-            #self.udof = np.concatenate((self.model_dofs, self.u.transpose()),axis=1)
 
         #Only displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] == 0 :
             Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc)
             self.u = spsolve(self.K,self.Zu.transpose() @ self.l)
-            #self.udof = np.concatenate((self.model_dofs, self.u.transpose()),axis=1)
 
         #Both force and displacement controlled dofs
         elif self.Zu.shape[0] != 0 and self.Zf.shape[0] != 0 :
@@ -135,75 +120,40 @@ class model:
             Kiuu = self.Zu @ spsolve(self.K,self.Zu.transpose())
             self.l = spsolve(Kiuu,self.uc - Kiuf @ self.fc)
             self.u = np.linalg.lstsq(self.K,self.Zu.transpose() @ self.l + self.Zf.transpose() @ self.fc)[0][:,0]
-            #self.udof = np.concatenate((self.model_dofs, self.u.transpose()),axis=1)
 
     def compute_stress(self):
-        self.sigma = np.zeros((self.EL.shape[0],3))
-        n = 0
+        self.sigma = np.zeros((self.EL.shape[0]*4,3))
         for i in range(0,self.EL.shape[0]):
-            self.myElements[i].calculate_stress(self.myElements[i].Ze @ self.u,n)
-            self.sigma[i] = self.myElements[i].stress
-            n += 1
+            self.myElements[i].calculate_stress(self.myElements[i].Ze @ self.u)
+            self.sigma[4*i:4*i+4] = self.myElements[i].stress
             
 
     def plot(self,uscale,x1,x2,y1,y2):
         self.fig, self.ax = plt.subplots()
 
         for myElement in self.myElements:
-            myElement.plot(self.ax, myElement.Ze @ self.u, uscale) 
+            myElement.plot(self.ax, myElement.Ze @ self.u, uscale)
 
         self.ax.set_xlim(x1, x2)
         self.ax.set_ylim(y1, y2)
         plt.show()
 
-    #def plot_stresses(self,x1,x2,y1,y2,direction):
-    #    self.fig1, self.ax1 = plt.subplots()
-
-    #    n = 0
-    #    for myElement in self.myElements:
-    #        myElement.plot_stress(self.ax1, self.sigma[n,:],direction)
-    #        n += 1
-        
-    #    max_value = self.sigma.max()
-    #    min_value = self.sigma.min()
-    #    cbar = self.fig.colorbar(plt.cm.ScalarMappable(cmap='viridis',norm=plt.Normalize(min_value, max_value)), ax=self.ax1, label='Stress Value')
-
-    #    self.ax1.set_xlim(x1, x2)
-    #    self.ax1.set_ylim(y1, y2)
-    #    plt.show()
-
 
     def plot_stresses(self, x1, x2, y1, y2, direction):
         self.fig1, self.ax1 = plt.subplots()
 
-        stress_values = [element.stress[direction] for element in self.myElements]
-        max_value = max(stress_values)
-        min_value = min(stress_values)
+        max_value = np.max(self.sigma[:,direction])
+        min_value = np.min(self.sigma[:,direction])
 
-        n = 0
-        for myElement, stress_value in zip(self.myElements, stress_values):
-            myElement.plot_stress(self.ax1, stress_value, direction,n)
-            n += 1
+        for myElement in self.myElements:
+            myElement.plot_stress(self.ax1, min_value, max_value, direction, myElement.Ze @ self.u)
 
-        im = plt.imshow([stress_values], cmap='viridis', aspect='auto', origin='lower') #extent=[x1, x2, y1, y2],
-        cbar = self.fig1.colorbar(im, ax=self.ax1, label='Stress Value')
-        #cbar = self.fig.colorbar(plt.cm.ScalarMappable(cmap='viridis',norm=plt.Normalize(min_value, max_value)), ax=self.ax1, label='Stress Value')
+        im = plt.imshow([self.sigma], cmap='viridis', aspect='auto')
+        plt.colorbar(im, label='Normalized Stress Values')
 
         self.ax1.set_xlim(x1, x2)
         self.ax1.set_ylim(y1, y2)
         plt.show()
-
-
-
-        # Plot deformed beam with stress information
-        #for i in range(self.EL.shape[0]):
-        #    ax.add_collection(LineCollection([list(zip(self.myElements.pos[self.EL[i,:], 0], self.myElements.pos[self.EL[i,:], 1]))],
-        #                                    colors=[(0, 0, 0, 1), (self.sigma[i,0],self.sigma[i,1] ,self.sigma[i,2], 1)],
-        #                                    linewidths=[2, 2], linestyle='-', cmap=plt.cm.viridis, alpha=0.7))
-
-        #ax1.autoscale()
-        #ax.set_aspect('equal', adjustable='box')
-        #plt.show()
 
 
 class beam2D:
@@ -223,6 +173,7 @@ class beam2D:
         self.L = np.linalg.norm(self.node_coord[1,:] - self.node_coord[0,:])
         self.s = (self.node_coord[[1],:] - self.node_coord[[0],:])/self.L
         self.t = np.array([[-self.s[0,1], self.s[0,0]]])
+        disp = np.zeros((1,12))
 
         # Rotation matrix
         one = [[1]]
@@ -230,7 +181,7 @@ class beam2D:
         self.R = sp.linalg.block_diag(self.T,one,self.T,one)
 
         # Compute the stiffness matrix
-        self.compute_K()
+        self.compute_K(disp)
 
     def compute_K(self):
         # Local element stiffness matrix
@@ -286,11 +237,11 @@ class solid2D:
                              [self.node_ID[2],1],   
                              [self.node_ID[3],0],
                              [self.node_ID[3],1]],dtype="int")
-    
-        self.compute_K() 
+        disp = np.zeros((1,8))
+        self.compute_K(disp) 
 
 
-    def compute_K(self):
+    def compute_K(self,disp):
         self.Ke = np.zeros((8,8))                     #element stiffness
         Ke_b = np.zeros((8,8))
 
@@ -298,32 +249,9 @@ class solid2D:
         N = lambda s, t : 1/4* np.array([[-(1-t),  (1-t), (1+t), -(1+t)],
                                          [-(1-s), -(1+s), (1+s),  (1-s)]])
         #Plane stress
-        self.D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
-                           [self.nu*self.E/(1-self.nu**2),  self.E/(1-self.nu**2),          0],
-                           [0,                              0,                              self.E/(2*(1+self.nu))]])   
-
-        #Quadrature rule (bending)
-        r,w = self.GaussPoints(2)
-
-        #Numerical ingration
-        for si,wi in zip(r,w):
-            for tj,wj in zip(r,w):
-
-                # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
-                J = N(si,tj) @ self.node_coord
-
-                Bs = np.zeros((4,8))
-                Bs[0,[0,2,4,6]] = N(si,tj)[0,:] #dphi_ds_val
-                Bs[1,[0,2,4,6]] = N(si,tj)[1,:] #dphi_dt_val
-                Bs[2,[1,3,5,7]] = N(si,tj)[0,:]
-                Bs[3,[1,3,5,7]] = N(si,tj)[1,:]
-
-                # ???
-                self.Bb = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
-                #print(self.Bb)
-                #print('---------------------------')
-
-                Ke_b += self.t * self.Bb.transpose() @ self.D[0:2,0:2] @ self.Bb * np.linalg.det(J) * wi * wj 
+        D = np.array([[self.E/(1-self.nu**2),          self.nu*self.E/(1-self.nu**2),  0],         #plane stress
+                      [self.nu*self.E/(1-self.nu**2),  self.E/(1-self.nu**2),          0],
+                      [0,                              0,                              self.E/(2*(1+self.nu))]])   
 
         #Quadrature rule (shear)
         r,w = self.GaussPoints(1)
@@ -337,9 +265,38 @@ class solid2D:
         Bssh[2,[1,3,5,7]] = N(r,r)[0,:]
         Bssh[3,[1,3,5,7]] = N(r,r)[1,:]
 
-        self.Bsh = np.array([[0,1,1,0]]) @ sp.linalg.block_diag(np.linalg.inv(Jsh),np.linalg.inv(Jsh)) @ Bssh
+        Bsh = np.array([[0,1,1,0]]) @ sp.linalg.block_diag(np.linalg.inv(Jsh),np.linalg.inv(Jsh)) @ Bssh
 
-        Ke_sh = self.t * self.Bsh.transpose() * self.D[2,2]  * self.Bsh * np.linalg.det(Jsh) * w * w 
+        Ke_sh = self.t * Bsh.transpose() * D[2,2]  * Bsh * np.linalg.det(Jsh) * w * w 
+        
+        #Quadrature rule (bending)
+        r,w = self.GaussPoints(2)
+
+        #Numerical ingration
+        self.stress = np.zeros((4,3))
+        n = 0
+        for si,wi in zip(r,w):
+            for tj,wj in zip(r,w):
+
+                # Jacobian matrix [dx/ds,dx/dt;dy/ds,dy/dt]
+                J = N(si,tj) @ self.node_coord
+
+                Bs = np.zeros((4,8))
+                Bs[0,[0,2,4,6]] = N(si,tj)[0,:] #dphi_ds_val
+                Bs[1,[0,2,4,6]] = N(si,tj)[1,:] #dphi_dt_val
+                Bs[2,[1,3,5,7]] = N(si,tj)[0,:]
+                Bs[3,[1,3,5,7]] = N(si,tj)[1,:]
+
+                Bb = np.array([[1,0,0,0],[0,0,0,1]]) @ sp.linalg.block_diag(np.linalg.inv(J),np.linalg.inv(J)) @ Bs
+
+                Ke_b += self.t * Bb.transpose() @ D[0:2,0:2] @ Bb * np.linalg.det(J) * wi * wj 
+
+                #set displacement to zero, and run again later with known displacement. calculate the stress here
+                B = np.concatenate((Bb,Bsh),axis=0)
+                strain = B @ disp.transpose()
+                stress = D @ strain
+                self.stress[n,:] = stress.transpose()
+                n += 1
 
         self.Ke = Ke_b + Ke_sh
 
@@ -366,12 +323,8 @@ class solid2D:
 
         self.Ze = sp.sparse.csr_matrix((np.ones((len(self.row_index))),(self.row_index,self.col_index)),shape=(self.dof.shape[0],modeldofs.shape[0]))
 
-    def calculate_stress(self,u,n):
-        B = np.concatenate((self.Bb,self.Bsh),axis=0)
-        #print(self.Bb)
-        #print('============================')
-        strain = B @ u.transpose()
-        self.stress = self.D @ strain
+    def calculate_stress(self,u):
+        self.compute_K(u)
     
     def plot(self,ax,ue,uscale):
 
@@ -391,10 +344,11 @@ class solid2D:
 
         ax.add_patch(patches.Polygon(self.pos[:,0:2],color='red', alpha=0.5))
 
-    def plot_stress(self,ax,sigma,direction,n):
-        #sigma_vm = 1.0 / np.sqrt(2.0) * np.sqrt((sigma[0] - sigma[1])**2 + sigma[0]**2 + sigma[1]**2 + 6 * sigma[2])
-        #self.im = plt.imshow([sigma], cmap='viridis', extent=[self.node_coord[0,0], self.node_coord[1,0], self.node_coord[0,1], self.node_coord[1,1]], aspect='auto', origin='lower')
-        ax.add_patch(patches.Polygon(self.pos[:, 0:2], closed=True, edgecolor='black', facecolor=plt.cm.viridis(sigma)))
+    def plot_stress(self,ax,stress_min,stress_max,direction,u):
+        self.calculate_stress(u)
+        avg_stress = (self.stress[0,direction] + self.stress[1,direction] + self.stress[2,direction] + self.stress[3,direction])/4.0
+        stress_norm = np.interp(avg_stress,np.array([stress_min,stress_max]),np.array([0.0,1.0]))
 
+        ax.add_patch(patches.Polygon(self.pos[:,0:2], closed=True, edgecolor='black', facecolor=plt.cm.viridis(stress_norm)))
 
 
