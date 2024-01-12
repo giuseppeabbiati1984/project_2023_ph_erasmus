@@ -2,7 +2,6 @@ import numpy as np
 import scipy as sp
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import dill
 from scipy.sparse.linalg import spsolve
 
 # Function for conversion of dense to sparse matrix
@@ -183,7 +182,7 @@ class beam2D:
         # Compute the stiffness matrix
         self.compute_K(disp)
 
-    def compute_K(self):
+    def compute_K(self,disp):
         # Local element stiffness matrix
         self.Kl = np.array([[self.E*self.A/self.L, 0,0,-self.E*self.A/self.L,0,0],
                             [0, 12*self.E*self.I/self.L**3, 6*self.E*self.I/self.L**2, 0, -12*self.E*self.I/self.L**3, 6*self.E*self.I/self.L**2],
@@ -194,6 +193,9 @@ class beam2D:
 
         # Global element stiffness matrix
         self.Ke = dense2sparse(self.R.transpose() @ self.Kl @ self.R)
+
+        #Maximum moment
+        M = 
 
     def compute_Z(self,modeldofs):
         self.row_index = []
@@ -349,6 +351,6 @@ class solid2D:
         avg_stress = (self.stress[0,direction] + self.stress[1,direction] + self.stress[2,direction] + self.stress[3,direction])/4.0
         stress_norm = np.interp(avg_stress,np.array([stress_min,stress_max]),np.array([0.0,1.0]))
 
-        ax.add_patch(patches.Polygon(self.pos[:,0:2], closed=True, edgecolor='black', facecolor=plt.cm.viridis(stress_norm)))
+        ax.add_patch(patches.Polygon(self.pos[:,0:2], closed=True, edgecolor=None, facecolor=plt.cm.viridis(stress_norm)))
 
 

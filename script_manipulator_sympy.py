@@ -3,11 +3,14 @@
 #should use sympy, because numpy is for numerical purposes and we need to stick with symoblic for now
 import sympy as sm
 import numpy as np
-import dill
 from scipy.sparse.linalg import spsolve
 
 
 def calculate_reaction_force(dx,dy,fx,fy):
+    #fx = 0.0
+    #fy = -1842.55523974
+    #dx = 2.7334056773451982e-06
+    #dy = -0.0003644314868804664
     x1,y1,x2,y2,q1,q2,chi_x,chi_y = sm.symbols('x_1,y_1,x_2,y_2,q_1,q_2,chi_x,chi_y')
 
     # eq 4.31 Taghirad
@@ -22,10 +25,10 @@ def calculate_reaction_force(dx,dy,fx,fy):
     lambda_J = sm.lambdify((chi_x, chi_y, x1, x2, y1, y2),[J,Jq,Jchi])
 
     #Position of connection point of one actuator
-    x1_val = -0.6653
+    x1_val = -665.3
     y1_val = 0.0
     #Position of connection point of the other actuator
-    y2_val = -0.5840
+    y2_val = -584.0
     x2_val = 0.0
 
     #Prescribed displacement
@@ -34,10 +37,10 @@ def calculate_reaction_force(dx,dy,fx,fy):
 
     J_val,Jq_val,Jchi_val = lambda_J(chi_x_val,chi_y_val,x1_val,x2_val,y1_val,y2_val)
 
-    with open('lambda_J_dill.pkl', 'wb') as file:
-        dill.dump(lambda_J, file)
+    #with open('lambda_J_dill.pkl', 'wb') as file:
+    #    dill.dump(lambda_J, file)
 
-    file.close()
+    #file.close()
 
     F = np.array([[fx], [fy]])
     tau = spsolve(J_val.transpose(),F)
